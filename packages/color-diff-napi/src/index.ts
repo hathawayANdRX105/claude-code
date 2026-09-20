@@ -872,6 +872,12 @@ function detectLanguage(
   if (cachedHljs && byName && cachedHljs.getLanguage(byName)) return byName
   if (cachedHljs && ext) {
     if (cachedHljs.getLanguage(ext)) return ext
+    // core 未注册的冷门扩展名：查表触发异步注册，本次返回语言名先降级渲染，
+    // cachedHljsAst 未就绪会返回 null（纯文本），下个渲染周期恢复高亮
+    if (EXTRA_LANGUAGES[ext]) {
+      ensureExtraLanguage(ext)
+      return EXTRA_LANGUAGES[ext]
+    }
   }
   // Shebang / first-line detection (strip UTF-8 BOM)
   if (firstLine) {
