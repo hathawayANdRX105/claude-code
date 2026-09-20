@@ -24,7 +24,6 @@
  *   returns null for width < 1; callers already handle both).
  */
 
-import hljs from 'highlight.js'
 import { basename, extname, resolve } from 'path'
 import { existsSync } from 'fs'
 import { createRequire } from 'module'
@@ -38,21 +37,32 @@ import {
   type JsStructuredPatchHunk,
 } from './jsDiff'
 
-// Static import — createRequire(import.meta.url) fails in Bun --compile mode
-// because the resolved path points to the internal bunfs binary path where
-// node_modules cannot be found. A top-level import ensures the module is
-// bundled and accessible at runtime.
-type HLJSApi = typeof hljs
+// hljs is only needed on the TS fallback path. Preload it lazily at module
+// scope — when the Rust native module loads, highlight/detectLanguage never
+// run and the full 192-language bundle (~5-15MB) stays out of memory.
+// Dynamic import() resolves under Bun --compile (bytecode+esm, oven-sh/bun#26402);
+// import.meta.require does NOT (bunfs path has no node_modules), so the
+// preload uses await import() at top level and hljsApi() stays synchronous.
+// Resolved API after CJS `export =` interop (default unwrap). Not
+// `typeof import('highlight.js')`: the ESM view of the CJS module wraps the
+// API in .default at runtime; callers use the post-unwrap shape where
+// getLanguage/highlight live on the surface itself.
+type HLJSApi = {
+  getLanguage: (name: string) => unknown
+  highlight: (
+    code: string,
+    opts: { language: string; ignoreIllegals: boolean },
+  ) => { _emitter?: unknown }
+}
 let cachedHljs: HLJSApi | null = null
 function hljsApi(): HLJSApi {
   if (cachedHljs) return cachedHljs
-  // highlight.js uses `export =` (CJS). Under bun/ESM the interop wraps it
-  // in .default; under node CJS the module IS the API. Check at runtime.
-  const mod = hljs as HLJSApi & { default?: HLJSApi }
-  cachedHljs = 'default' in mod && mod.default ? mod.default : mod
-  return cachedHljs!
+  // Only reached on the TS fallback path (native unavailable); the preload
+  // below has already resolved by then.
+  throw new Error(
+    'color-diff: hljs used before native probe completed — fallback path reached without preload',
+  )
 }
-
 // Use Bun.stringWidth when available, otherwise fall back to simple .length
 const stringWidth: (str: string) => number =
   typeof Bun !== 'undefined' && typeof Bun.stringWidth === 'function'
@@ -1436,6 +1446,19 @@ function tryLoadNative(): NativeModule | null {
     }
   }
   return cachedModule
+}
+
+// Preload hljs only when the native module is unavailable — the TS fallback
+// path (TsColorFile/detectLanguage) needs it; the native path never runs
+// those, so the full 192-language bundle (~5-15MB) stays out of memory.
+// Top-level await is supported by the compile target (bytecode + esm).
+if (!tryLoadNative()) {
+  const mod = (await import('highlight.js')) as unknown as HLJSApi & {
+    default?: HLJSApi
+  }
+  // highlight.js uses `export =` (CJS): under bun/ESM interop wraps it in
+  // .default; under node CJS the module IS the API. Check at runtime.
+  cachedHljs = mod.default ?? mod
 }
 
 export function isNativeColorDiffAvailable(): boolean {

@@ -5,9 +5,6 @@
 /// <reference lib="dom" />
 
 import { extname } from 'path'
-// Static import — dynamic import('highlight.js') fails in Bun --compile mode
-// because module resolution points to the internal bunfs binary path.
-import hljs from 'highlight.js'
 
 export type CliHighlight = {
   highlight: typeof import('cli-highlight').highlight
@@ -23,13 +20,18 @@ let loadedGetLanguage:
 
 async function loadCliHighlight(): Promise<CliHighlight | null> {
   try {
-    const cliHighlight = await import('cli-highlight')
+    const [cliHighlight, hljsMod] = await Promise.all([
+      import('cli-highlight'),
+      // Dynamic: resolves under Bun --compile (bytecode+esm, oven-sh/bun#26402);
+      // import.meta.require does NOT (bunfs path has no node_modules).
+      import('highlight.js'),
+    ])
     // highlight.js CJS interop: `export =` wraps in .default under ESM
-    const hljsMod = hljs as {
+    const hljs = hljsMod as {
       getLanguage?: typeof loadedGetLanguage
-      default?: typeof hljs
+      default?: { getLanguage?: typeof loadedGetLanguage }
     }
-    loadedGetLanguage = hljsMod.getLanguage ?? hljsMod.default?.getLanguage
+    loadedGetLanguage = hljs.getLanguage ?? hljs.default?.getLanguage
     return {
       highlight: cliHighlight.highlight,
       supportsLanguage: cliHighlight.supportsLanguage,
