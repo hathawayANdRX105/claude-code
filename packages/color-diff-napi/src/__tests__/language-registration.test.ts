@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import hljs from 'highlight.js/lib/core'
+import { __test } from '../index'
 
 // Re-import the module to trigger language registration side effects
-// The module-level registerLanguage calls happen on import
 import '../index.js'
+
+// 语言按需异步注册，断言前必须等加载完成
+await __test.hljsReady()
 
 describe('highlight.js language registration', () => {
   const expectedLanguages = [
