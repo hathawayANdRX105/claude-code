@@ -250,6 +250,24 @@ jobs:
               echo "  probe[$probe] run$i: $(( (e-s)/1000000 ))ms"
             done
           done
+      # UPX 压缩 linux-x64（本地实测体积 -60%+）。在冒烟之后、上传之前，
+      # 保证压缩的是已验证可执行的二进制。--best 较慢但只跑一次可接受。
+      - name: Compress binary with UPX (linux-x64)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq upx-ucl >/dev/null
+          before=$(stat -c%s dist/ccb-linux-x64)
+          upx --best --lzma dist/ccb-linux-x64
+          after=$(stat -c%s dist/ccb-linux-x64)
+          echo "  UPX: $((before/1048576))MB → $((after/1048576))MB ($((100*(before-after)/before))% smaller)"
+          # 压缩后必须仍能运行
+          dist/ccb-linux-x64 --version
+
+      - name: Upload compressed linux-x64 only
+        uses: actions/upload-artifact@v7
+        with:
+          name: ccb-linux-x64-upx
+          path: dist/ccb-linux-x64
 
       - name: Upload dist
         uses: actions/upload-artifact@v7
