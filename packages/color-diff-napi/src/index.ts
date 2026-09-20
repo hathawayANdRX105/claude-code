@@ -133,16 +133,22 @@ async function loadHljs(): Promise<HLJSApi> {
   return cachedHljs
 }
 
-// 冷门语言：触发异步注册，本次仍降级纯文本，下次高亮生效
+// 冷门语言：触发异步注册，本次仍降级纯文本，下次高亮生效。
+// 返回注册 promise（调用方 fire-and-forget），便于测试确定性等待。
 const pendingExtra: Record<string, true> = {}
-function ensureExtraLanguage(lang: string): void {
+function ensureExtraLanguage(lang: string): Promise<void> | void {
   if (!EXTRA_LANGUAGES[lang] || pendingExtra[lang]) return
   pendingExtra[lang] = true
-  void loadHljs().then(api =>
-    import(`highlight.js/lib/languages/${EXTRA_LANGUAGES[lang]}.js`).then(
-      (mod: LanguageModule) => api.registerLanguage(lang, mod.default),
-    ),
-  )
+  return loadHljs()
+    .then(api =>
+      import(`highlight.js/lib/languages/${EXTRA_LANGUAGES[lang]}.js`).then(
+        (mod: LanguageModule) => api.registerLanguage(lang, mod.default),
+      ),
+    )
+    .catch(() => {
+      // 失败（模块不存在等）清除标记，允许下次重试；否则永远停在 pending。
+      delete pendingExtra[lang]
+    })
 }
 
 // Use Bun.stringWidth when available, otherwise fall back to simple .length
@@ -990,10 +996,10 @@ function cachedHljsAst(lang: string, code: string): HljsNode | null {
   if (hit !== undefined) return hit
   // 未加载/冷门语言时触发异步注册，本次返回 null（纯文本），
   // 下次渲染命中已注册的语言。保持同步签名——改 render 链需动 native 契约。
-  ensureExtraLanguage(lang)
+  void ensureExtraLanguage(lang)
   if (!cachedHljs) {
+    // 不写缓存：语言注册完成后同一 key 仍须可高亮，写 null 会永久污染。
     void loadHljs()
-    hlLineCache.set(key, null)
     return null
   }
   let result
@@ -1619,6 +1625,8 @@ export const __test = {
   parseTmTheme,
   flattenHljs,
   buildTheme,
+  // 冷门语言按需注册的触发点（同步返回、异步注册），测试需 await 后再断言
+  ensureExtraLanguage,
   // 语言按需注册，测试需 await 后再断言 getLanguage/highlight
   hljsReady: loadHljs,
 }
