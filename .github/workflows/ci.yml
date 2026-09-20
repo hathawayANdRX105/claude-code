@@ -148,7 +148,7 @@ jobs:
   # compile.ts 默认启用 JSC bytecode 预编译（--version 1.16s→0.20s，代价体积 +53%）。
   package:
     needs: [quality, native]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2, 2026-04-25
