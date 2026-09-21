@@ -10,7 +10,6 @@ import { AcpConnectionError, type AcpDaemonOptions } from './types.js'
 
 type OwnedChild = {
   kill: (signal?: NodeJS.Signals) => void
-  markClosed: () => void
 }
 
 /**
@@ -36,6 +35,7 @@ export class AcpClientConnection {
   private ctx: ContextApi
   private readonly child: OwnedChild | null
   private closed = false
+  private crashError: AcpConnectionError | null = null
 
   constructor(conn: ClientConnection, child: OwnedChild | null) {
     this.conn = conn
@@ -46,9 +46,25 @@ export class AcpClientConnection {
     this.ctx = conn as unknown as ContextApi
   }
 
+  isClosed(): boolean {
+    return this.closed
+  }
+
   /**
-   * Spawn a daemon and wire the JSON-RPC connection. Throws
-   * AcpConnectionError if the child dies outside a deliberate close().
+   * Record that the child died on its own. Throwing from the exit handler
+   * would never reach a caller (event-emitter handlers don't propagate), so
+   * instead the error is stored and every subsequent/pending op is rejected
+   * with it.
+   */
+  markCrashed(error: AcpConnectionError): void {
+    this.closed = true
+    this.crashError = error
+  }
+
+  /**
+   * Spawn a daemon and wire the JSON-RPC connection. If the child dies
+   * outside a deliberate close(), the connection marks itself crashed and
+   * later withContext() calls reject with AcpConnectionError.
    */
   static spawn(options: AcpDaemonOptions = {}): AcpClientConnection {
     const command = options.command ?? process.execPath
@@ -59,28 +75,28 @@ export class AcpClientConnection {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
-    // close() flips this before killing so the exit handler can tell a
-    // deliberate shutdown from a crash.
-    let thisClosed = false
-    const markClosed = () => {
-      thisClosed = true
-    }
+    const connection = new AcpClientConnection(
+      connectStream(child.stdout, child.stdin),
+      { kill: signal => child.kill(signal) },
+    )
 
+    // close() flips this.closed before killing so this handler can tell a
+    // deliberate shutdown from a crash. The error is stored, not thrown: a
+    // throw inside an exit handler never reaches a caller and would instead
+    // crash the host process as an uncaught exception.
     child.on('exit', (code, signal) => {
-      if (thisClosed) return
-      throw new AcpConnectionError(
-        `ACP daemon exited (code=${code} signal=${signal})`,
-        undefined,
-        code,
-        signal,
+      if (connection.isClosed()) return
+      connection.markCrashed(
+        new AcpConnectionError(
+          `ACP daemon exited (code=${code} signal=${signal})`,
+          undefined,
+          code,
+          signal,
+        ),
       )
     })
 
-    const conn = connectStream(child.stdout, child.stdin)
-    return new AcpClientConnection(conn, {
-      kill: s => child.kill(s),
-      markClosed,
-    })
+    return connection
   }
 
   /**
@@ -98,9 +114,8 @@ export class AcpClientConnection {
   setContextForTest(ctx: ContextApi): void {
     this.ctx = ctx
   }
-
-  /** Run an op against the connection's context. */
   withContext<T>(op: (ctx: ContextApi) => Promise<T>): Promise<T> {
+    if (this.crashError) return Promise.reject(this.crashError)
     if (this.closed) {
       return Promise.reject(new AcpConnectionError('connection closed'))
     }
@@ -110,7 +125,6 @@ export class AcpClientConnection {
   close(): void {
     if (this.closed) return
     this.closed = true
-    this.child?.markClosed()
     try {
       this.child?.kill('SIGTERM')
     } catch {

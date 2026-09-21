@@ -53,9 +53,20 @@ describe('AcpClientConnection', () => {
   it('rejects withContext after close()', async () => {
     const conn = testConnection(mockContext())
     conn.close()
-
     await expect(
       conn.withContext(async c => c.request('session/list', {})),
     ).rejects.toThrow(AcpConnectionError)
+  })
+
+  it('rejects ops with the crash error after markCrashed', async () => {
+    const conn = testConnection(mockContext())
+    const error = new AcpConnectionError('daemon exited')
+    conn.markCrashed(error)
+
+    // A throw in an exit handler never reaches a caller; the stored error is
+    // what withContext must surface instead.
+    await expect(
+      conn.withContext(async c => c.request('session/list', {})),
+    ).rejects.toBe(error)
   })
 })

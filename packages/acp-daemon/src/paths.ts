@@ -10,15 +10,6 @@ export function daemonSocketPath(): string {
   return `${base}/ccb-acp-daemon.sock`
 }
 
-/**
- * Lockfile companion to the socket. flock on this file is what makes
- * "is a daemon already running" reliable: a stale socket file survives a
- * crash, a held lock does not.
- */
-export function daemonLockPath(): string {
-  return `${daemonSocketPath()}.lock`
-}
-
 export interface DaemonOptions {
   /** Idle seconds with zero sessions before the daemon exits. Default 300. */
   idleTimeoutSec?: number

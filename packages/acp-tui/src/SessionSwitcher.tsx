@@ -38,11 +38,9 @@ export function SessionSwitcher({
     }
   });
 
-  // Re-render on registry mutation so new sessions appear without props change.
-  React.useEffect(() => {
-    const interval = setInterval(force, 200);
-    return () => clearInterval(interval);
-  }, []);
+  // Re-render when the registry mutates. A fixed-interval poll would burn CPU
+  // the whole time the switcher is open; subscribing reacts exactly on change.
+  React.useEffect(() => registry.subscribe(force), [registry]);
 
   if (sessions.length === 0) {
     return <Text dimColor>No sessions yet — start one with /new</Text>;

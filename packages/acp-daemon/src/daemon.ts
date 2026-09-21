@@ -1,21 +1,7 @@
 import { unlinkSync } from 'node:fs'
 import { createConnection, createServer, type Socket } from 'node:net'
-import {
-  daemonLockPath,
-  type DaemonOptions,
-  DEFAULT_IDLE_TIMEOUT_SEC,
-} from './paths.js'
-export function acquireDaemonLock(): boolean {
-  // Stale lock from a previous crash would block a fresh daemon; the socket
-  // unlink in listen() covers the socket, and flock-style exclusivity is
-  // provided by the listener itself (bind fails if another daemon holds it).
-  // Keeping the function so callers express intent; real exclusivity is the
-  // bind, not a lockfile.
-  try {
-    unlinkSync(daemonLockPath())
-  } catch {}
-  return true
-}
+import { type DaemonOptions, DEFAULT_IDLE_TIMEOUT_SEC } from './paths.js'
+
 /**
  * True if something is accepting connections on the socket path. Used to tell
  * a crashed daemon's dangling file (safe to reclaim) from a live daemon's
