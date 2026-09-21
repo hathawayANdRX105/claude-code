@@ -18,22 +18,24 @@ export async function runTui(): Promise<void> {
   applySafeConfigEnvironmentVariables();
 
   const cwd = process.cwd();
+  // process.execPath is this very binary in a --compile bundle; CCB_BIN lets
+  // a dev shell point at an installed ccb to act as the daemon.
   const connection = AcpClientConnection.spawn({
-    command: process.execPath,
+    command: process.env.CCB_BIN ?? process.execPath,
     args: ['--acp'],
     env: {
       // An empty MCP list is required: without it the agent answers session/new
       // with -32602.
       ACP_MCP_SERVERS: '[]',
     },
-  });
+  })
 
   await connection.waitReady();
   await connection.initialize();
 
   const registry = new SessionRegistry();
 
-  const instance = render(
+const instance = render(
     <AcpTuiApp connection={connection} registry={registry} daemonPid={connection.daemonPid} cwd={cwd} />,
   );
 

@@ -52,8 +52,17 @@ export class AcpClientConnection {
    * build a bare instance and inject a context instead of using a stream.
    */
   attach(app: ClientApp, stream: Stream): void {
-    this.ready = app.connectWith(stream, async ctx => {
+    // connectWith resolves only when the op returns — but this op must NOT
+    // return, or the SDK tears the connection down. So the awaitable handed to
+    // callers is a separate promise that fires the moment the context arrives,
+    // not the connectWith result.
+    let readyResolve!: () => void
+    this.ready = new Promise<void>(resolve => {
+      readyResolve = resolve
+    })
+    app.connectWith(stream, async ctx => {
       this.ctx = ctx as unknown as ContextApi
+      readyResolve()
       await new Promise<void>(resolve => {
         this.done = { resolve }
       })
