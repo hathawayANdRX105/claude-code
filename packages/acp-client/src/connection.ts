@@ -1,9 +1,5 @@
 import { ClientApp, ndJsonStream } from '@agentclientprotocol/sdk'
-import type {
-  ActiveSession,
-  ClientConnection,
-  Stream,
-} from '@agentclientprotocol/sdk'
+import type { ActiveSession, Stream } from '@agentclientprotocol/sdk'
 import { Readable, Writable } from 'node:stream'
 import { spawn } from 'node:child_process'
 import { AcpConnectionError, type AcpDaemonOptions } from './types.js'
@@ -22,32 +18,45 @@ export interface ContextApi {
 }
 
 /**
- * Wraps a child process running `ccb --acp`. The process is owned by this
- * connection: close() kills it.
+ * A long-lived connection to a `ccb --acp` process.
  *
- * Session work goes through withContext(), which hands out the SDK's context —
- * buildSession(cwd).start() returns an ActiveSession: prompt() to send,
- * nextUpdate() to receive. Keeping this class thin is deliberate: session
- * bookkeeping belongs to the UI state layer.
+ * The SDK only hands out a ClientContext inside connectWith()'s callback, and
+ * tears the connection down when that callback returns. To survive across
+ * requests the callback stores the context and then awaits a done promise
+ * that only close() resolves — the connection lives exactly as long as we
+ * need it, no longer.
+ *
+ * Session work goes through withContext(): buildSession(cwd).start() returns
+ * an ActiveSession with prompt()/nextUpdate(). Keeping this class thin is
+ * deliberate; session bookkeeping belongs to the UI state layer.
  */
 export class AcpClientConnection {
-  private readonly conn: ClientConnection
-  private ctx: ContextApi
-  private readonly child: OwnedChild | null
+  private ctx: ContextApi | null = null
+  private readonly child: OwnedChild | null = null
+  private ready!: Promise<void>
   private closed = false
   private crashError: AcpConnectionError | null = null
+  private done: { resolve: () => void } | null = null
 
-  constructor(conn: ClientConnection, child: OwnedChild | null) {
-    this.conn = conn
+  constructor(child: OwnedChild | null = null) {
     this.child = child
-    // SDK 只在 connectWith 回调里公开 ClientContext，但该重载随 op 结束
-    // 关闭连接，不适合长驻 daemon。ClientConnection 实例本身携带 context，
-    // 按窄接口断言取得，调用面不依赖 SDK 内部形状。
-    this.ctx = conn as unknown as ContextApi
   }
 
   isClosed(): boolean {
     return this.closed
+  }
+
+  /**
+   * Start the SDK handshake. Separated from the constructor so tests can
+   * build a bare instance and inject a context instead of using a stream.
+   */
+  attach(app: ClientApp, stream: Stream): void {
+    this.ready = app.connectWith(stream, async ctx => {
+      this.ctx = ctx as unknown as ContextApi
+      await new Promise<void>(resolve => {
+        this.done = { resolve }
+      })
+    })
   }
 
   /**
@@ -59,6 +68,53 @@ export class AcpClientConnection {
   markCrashed(error: AcpConnectionError): void {
     this.closed = true
     this.crashError = error
+  }
+
+  /**
+   * Wait for the SDK handshake to deliver the context. Callers that want a
+   * usable connection await this before withContext().
+   */
+  async waitReady(): Promise<void> {
+    await this.ready
+  }
+
+  /**
+   * Send the ACP initialize handshake. The agent refuses session work until
+   * the client has introduced itself.
+   */
+  async initialize(
+    clientInfo = { name: 'ccb-tui', version: '0.1.0' },
+  ): Promise<void> {
+    await this.withContext(async ctx =>
+      ctx.request('initialize', {
+        protocolVersion: 1,
+        capabilities: {},
+        clientInfo,
+      }),
+    )
+  }
+
+  /** Run an op against the connection's context. */
+  withContext<T>(op: (ctx: ContextApi) => Promise<T>): Promise<T> {
+    if (this.crashError) return Promise.reject(this.crashError)
+    if (this.closed) {
+      return Promise.reject(new AcpConnectionError('connection closed'))
+    }
+    if (!this.ctx) {
+      return Promise.reject(new AcpConnectionError('connection not ready'))
+    }
+    return op(this.ctx)
+  }
+
+  close(): void {
+    if (this.closed) return
+    this.closed = true
+    this.done?.resolve()
+    try {
+      this.child?.kill('SIGTERM')
+    } catch {
+      // Best effort: the stream teardown is what matters.
+    }
   }
 
   /**
@@ -75,10 +131,11 @@ export class AcpClientConnection {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
-    const connection = new AcpClientConnection(
-      connectStream(child.stdout, child.stdin),
-      { kill: signal => child.kill(signal) },
-    )
+    const { stream, app } = connectStream(child.stdout, child.stdin)
+    const connection = new AcpClientConnection({
+      kill: signal => child.kill(signal),
+    })
+    connection.attach(app, stream)
 
     // close() flips this.closed before killing so this handler can tell a
     // deliberate shutdown from a crash. The error is stored, not thrown: a
@@ -107,37 +164,22 @@ export class AcpClientConnection {
     readable: NodeJS.ReadableStream,
     writable: NodeJS.WritableStream,
   ): AcpClientConnection {
-    return new AcpClientConnection(connectStream(readable, writable), null)
+    const { stream, app } = connectStream(readable, writable)
+    const connection = new AcpClientConnection(null)
+    connection.attach(app, stream)
+    return connection
   }
 
   /** Test seam: swap the context without a real connection. */
   setContextForTest(ctx: ContextApi): void {
     this.ctx = ctx
   }
-  withContext<T>(op: (ctx: ContextApi) => Promise<T>): Promise<T> {
-    if (this.crashError) return Promise.reject(this.crashError)
-    if (this.closed) {
-      return Promise.reject(new AcpConnectionError('connection closed'))
-    }
-    return op(this.ctx)
-  }
-
-  close(): void {
-    if (this.closed) return
-    this.closed = true
-    try {
-      this.child?.kill('SIGTERM')
-    } catch {
-      // Best effort: the stream teardown is what matters.
-    }
-    this.conn.close()
-  }
 }
 
 function connectStream(
   readable: NodeJS.ReadableStream,
   writable: NodeJS.WritableStream,
-): ClientConnection {
+): { stream: Stream; app: ClientApp } {
   const webReadable = Readable.toWeb(
     readable as typeof process.stdin,
   ) as unknown as ReadableStream<Uint8Array>
@@ -145,5 +187,5 @@ function connectStream(
     writable as typeof process.stdout,
   ) as unknown as WritableStream<Uint8Array>
   const stream: Stream = ndJsonStream(webWritable, webReadable)
-  return new ClientApp().connect(stream)
+  return { stream, app: new ClientApp() }
 }

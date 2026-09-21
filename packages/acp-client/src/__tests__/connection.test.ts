@@ -21,7 +21,7 @@ function mockContext(): ContextApi & { calls: Array<[string, unknown]> } {
 }
 
 function testConnection(ctx: ContextApi): AcpClientConnection {
-  const conn = new AcpClientConnection({ close: () => {} } as never, null)
+  const conn = new AcpClientConnection(null)
   conn.setContextForTest(ctx)
   return conn
 }
