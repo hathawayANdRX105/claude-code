@@ -24,9 +24,11 @@ export class SessionRegistry {
   private cursor = -1
 
   upsert(session: ManagedSession): void {
+    const isFirst = this.sessions.size === 0
     if (!this.sessions.has(session.sessionId)) {
       this.order.push(session.sessionId)
     }
+    if (isFirst) session.active = true
     this.sessions.set(session.sessionId, session)
     if (this.cursor < 0) this.cursor = 0
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { createConnection } from 'node:net'
+import { createConnection, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AcpDaemon } from '../daemon.js'
@@ -15,12 +15,27 @@ function uniqueSocket(): string {
   )
 }
 
-async function dial(path: string): Promise<void> {
-  const { promise, resolve, reject } = Promise.withResolvers<void>()
-  const socket = createConnection(path, () => resolve())
+function dial(path: string): Promise<Socket> {
+  const { promise, resolve, reject } = Promise.withResolvers<Socket>()
+  const socket = createConnection(path, () => resolve(socket))
   socket.on('error', reject)
-  await promise
-  socket.destroy()
+  return promise
+}
+
+/**
+ * Wait for the daemon to notice a socket lifecycle event. The accept and close
+ * callbacks run on later event-loop turns than the connect callback, so tests
+ * must await the event rather than assume ordering.
+ */
+function daemonSettled(daemon: AcpDaemon, expected: number): Promise<void> {
+  if (daemon.connectionCount === expected) return Promise.resolve()
+  return new Promise(resolve => {
+    const check = () => {
+      if (daemon.connectionCount === expected) resolve()
+      else setTimeout(check, 10)
+    }
+    setTimeout(check, 10)
+  })
 }
 
 describe('AcpDaemon', () => {
@@ -34,12 +49,12 @@ describe('AcpDaemon', () => {
     await daemon.listen(socketPath)
     expect(daemon.connectionCount).toBe(0)
 
-    await dial(socketPath)
-    // connection event is async; give the accept loop a turn
-    await new Promise(resolve => setImmediate(resolve))
+    const socket = await dial(socketPath)
+    await daemonSettled(daemon, 1)
 
     expect(accepted).toHaveLength(1)
     expect(daemon.connectionCount).toBe(1)
+    socket.destroy()
     daemon.close()
   })
 
@@ -48,14 +63,12 @@ describe('AcpDaemon', () => {
     const daemon = new AcpDaemon(() => {})
     await daemon.listen(socketPath)
 
-    const { promise, resolve } = Promise.withResolvers<void>()
-    const socket = createConnection(socketPath, () => resolve())
-    await promise
-    await new Promise(r => setImmediate(r))
+    const socket = await dial(socketPath)
+    await daemonSettled(daemon, 1)
     expect(daemon.connectionCount).toBe(1)
 
     socket.destroy()
-    await new Promise(r => setImmediate(r))
+    await daemonSettled(daemon, 0)
     expect(daemon.connectionCount).toBe(0)
     daemon.close()
   })
@@ -66,6 +79,8 @@ describe('AcpDaemon', () => {
     await first.listen(socketPath)
 
     const second = new AcpDaemon(() => {})
+    // EADDRINUSE surfaces as an 'error' event on the server, which listen()
+    // wires through its reject path; the failure is asynchronous.
     await expect(second.listen(socketPath)).rejects.toThrow()
     first.close()
   })
