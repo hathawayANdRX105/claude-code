@@ -19,9 +19,13 @@ export async function drainSession(
     let message
     try {
       message = await session.nextUpdate()
-    } catch {
-      // dispose() or the connection closing ends the loop; the registry
-      // already reflects the crash via the connection's error path.
+    } catch (err) {
+      // A dead daemon kills the update stream with a rejection. The registry
+      // has no other path to the UI, so the failure has to be written as a
+      // line or the session goes silent mid-conversation with no clue why.
+      registry.appendLine(session.sessionId, {
+        text: `✗ ${err instanceof Error ? err.message : String(err)}`,
+      })
       return
     }
     for (const line of renderUpdate(message)) {
