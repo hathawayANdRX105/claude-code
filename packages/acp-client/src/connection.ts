@@ -4,14 +4,10 @@ import { Readable, Writable } from 'node:stream'
 import { spawn } from 'node:child_process'
 import { AcpConnectionError, type AcpDaemonOptions } from './types.js'
 
-type OwnedChild = {
+export type OwnedChild = {
+  pid: number | null
   kill: (signal?: NodeJS.Signals) => void
 }
-
-/**
- * Narrow view of ClientContext so callers don't depend on the full SDK type
- * (and tests can stub it).
- */
 export interface ContextApi {
   request(method: string, params?: unknown): Promise<unknown>
   buildSession(cwd: string): { start(): Promise<ActiveSession> }
@@ -40,6 +36,11 @@ export class AcpClientConnection {
 
   constructor(child: OwnedChild | null = null) {
     this.child = child
+  }
+
+  /** OS pid of the spawned daemon, for memory accounting. */
+  get daemonPid(): number | null {
+    return this.child?.pid ?? null
   }
 
   isClosed(): boolean {
@@ -130,9 +131,9 @@ export class AcpClientConnection {
       env: { ...process.env, ...options.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
-
     const { stream, app } = connectStream(child.stdout, child.stdin)
     const connection = new AcpClientConnection({
+      pid: child.pid ?? null,
       kill: signal => child.kill(signal),
     })
     connection.attach(app, stream)
