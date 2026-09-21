@@ -17,6 +17,18 @@ export async function runTui(): Promise<void> {
   // child can authenticate — same reason runAcpAgent does this.
   applySafeConfigEnvironmentVariables();
 
+  // A TTY that reports a zero size (bun's -e entrypoint, some containers) makes
+  // ink measure a zero-width terminal and emit an empty frame, so the whole UI
+  // renders as a blank screen. Fall back to a usable size before ink reads it.
+  const stdout = process.stdout as typeof process.stdout & {
+    columns?: number;
+    rows?: number;
+  };
+  if (stdout.isTTY && (!stdout.columns || !stdout.rows)) {
+    stdout.columns = stdout.columns || 80;
+    stdout.rows = stdout.rows || 24;
+  }
+
   const cwd = process.cwd();
   // process.execPath is this very binary in a --compile bundle; CCB_BIN lets
   // a dev shell point at an installed ccb to act as the daemon.
@@ -49,7 +61,7 @@ export async function runTui(): Promise<void> {
   process.on('SIGINT', teardown);
   process.on('SIGTERM', teardown);
 
-  await new Promise(resolve => {
-    process.on('exit', resolve);
+  await new Promise<void>(resolve => {
+    process.on('exit', () => resolve());
   });
 }

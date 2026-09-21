@@ -24,6 +24,10 @@ export function AcpTuiApp({
   const [, force] = React.useReducer(x => x + 1, 0);
   const [input, setInput] = React.useState('');
   const [showSwitcher, setShowSwitcher] = React.useState(false);
+  // useInput's handler is registered once and would otherwise close over the
+  // input value from that first render; the ref keeps the latest draft alive.
+  const inputRef = React.useRef(input);
+  inputRef.current = input;
 
   React.useEffect(() => registry.subscribe(force), [registry]);
   // Refresh the memory readout on a cadence; it is the whole point of this UI.
@@ -36,25 +40,43 @@ export function AcpTuiApp({
 
   useInput(
     (ch, key) => {
-      if (key.return) {
-        void submit(input);
+      // ink hands a whole pasted chunk as one `ch`, so "/new<Enter>" arrives as
+      // a single event with key.return === false. Per-character replay would
+      // race the async setInput updates, so handle the text as one edit and
+      // treat a trailing Enter as the submit trigger.
+      const endsWithEnter = ch.endsWith('\r') || ch.endsWith('\n');
+      const text = endsWithEnter ? ch.slice(0, -1) : ch;
+      if (key.return || ch === '\r') {
+        void submit(inputRef.current);
         setInput('');
         return;
       }
-      if (key.backspace || key.delete) {
-        setInput(s => s.slice(0, -1));
+      if (endsWithEnter) {
+        void submit((inputRef.current + text).trim());
+        setInput('');
         return;
       }
-      // ctrl+t toggles the switcher; plain ctrl/meta chords are not text.
-      if (key.ctrl && ch === 't') {
-        setShowSwitcher(s => !s);
-        return;
-      }
-      if (key.ctrl || key.meta) return;
-      if (ch && ch !== '\r' && ch !== '\n') setInput(s => s + ch);
+      handleChar(ch, key);
     },
     { isActive: !showSwitcher },
   );
+
+  function handleChar(
+    ch: string,
+    key: { return?: boolean; backspace?: boolean; delete?: boolean; ctrl?: boolean; meta?: boolean },
+  ): void {
+    if (key.backspace || key.delete) {
+      setInput(s => s.slice(0, -1));
+      return;
+    }
+    // ctrl+t toggles the switcher; plain ctrl/meta chords are not text.
+    if (key.ctrl && ch === 't') {
+      setShowSwitcher(s => !s);
+      return;
+    }
+    if (key.ctrl || key.meta) return;
+    if (ch && ch !== '\r' && ch !== '\n') setInput(s => s + ch);
+  }
 
   async function submit(text: string): Promise<void> {
     const trimmed = text.trim();
