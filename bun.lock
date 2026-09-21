@@ -201,18 +201,18 @@
       },
     },
     "packages/acp-client": {
-      "name": "@claude-code/acp-client",
+      "name": "@claude-code-best/acp-client",
       "version": "0.1.0",
       "dependencies": {
         "@agentclientprotocol/sdk": "*",
       },
     },
     "packages/acp-daemon": {
-      "name": "@claude-code/acp-daemon",
+      "name": "@claude-code-best/acp-daemon",
       "version": "0.1.0",
       "dependencies": {
         "@agentclientprotocol/sdk": "*",
-        "@claude-code/acp-client": "*",
+        "@claude-code-best/acp-client": "*",
       },
     },
     "packages/acp-link": {
@@ -239,12 +239,12 @@
       },
     },
     "packages/acp-tui": {
-      "name": "@claude-code/acp-tui",
+      "name": "@claude-code-best/acp-tui",
       "version": "0.1.0",
       "dependencies": {
         "@agentclientprotocol/sdk": "*",
-        "@claude-code/acp-client": "*",
-        "@claude-code/acp-daemon": "*",
+        "@claude-code-best/acp-client": "*",
+        "@claude-code-best/acp-daemon": "*",
         "ink": "*",
         "react": "*",
       },
@@ -606,6 +606,12 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.13", "", { "os": "win32", "cpu": "x64" }, "sha512-VOofU/nW761XWzUeUNE8zzYNyPrxuMuNFMizL0qz7J75yeV8N7WFheUlk1/K6dOkaFpH9wJ+lDKlwjAbw0346w=="],
 
+    "@claude-code-best/acp-client": ["@claude-code-best/acp-client@workspace:packages/acp-client"],
+
+    "@claude-code-best/acp-daemon": ["@claude-code-best/acp-daemon@workspace:packages/acp-daemon"],
+
+    "@claude-code-best/acp-tui": ["@claude-code-best/acp-tui@workspace:packages/acp-tui"],
+
     "@claude-code-best/agent-tools": ["@claude-code-best/agent-tools@workspace:packages/agent-tools"],
 
     "@claude-code-best/builtin-tools": ["@claude-code-best/builtin-tools@workspace:packages/builtin-tools"],
@@ -617,12 +623,6 @@
     "@claude-code-best/weixin": ["@claude-code-best/weixin@workspace:packages/weixin"],
 
     "@claude-code-best/workflow-engine": ["@claude-code-best/workflow-engine@workspace:packages/workflow-engine"],
-
-    "@claude-code/acp-client": ["@claude-code/acp-client@workspace:packages/acp-client"],
-
-    "@claude-code/acp-daemon": ["@claude-code/acp-daemon@workspace:packages/acp-daemon"],
-
-    "@claude-code/acp-tui": ["@claude-code/acp-tui@workspace:packages/acp-tui"],
 
     "@cloudflare/kv-asset-handler": ["@cloudflare/kv-asset-handler@0.5.0", "", {}, "sha512-jxQYkj8dSIzc0cD6cMMNdOc1UVjqSqu8BZdor5s8cGjW2I8BjODt/kWPVdY+u9zj3ms75Q5qaZgnxUad83+eAg=="],
 
