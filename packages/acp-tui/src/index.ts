@@ -1,2 +1,7 @@
 export { SessionSwitcher } from './SessionSwitcher.js'
+export { AcpTuiApp } from './AcpTuiApp.js'
+export { MemoryStatusBar } from './MemoryStatusBar.js'
+export { drainSession } from './drainSession.js'
+export { renderUpdate, type DisplayLine } from './renderUpdate.js'
+export { processRss, ownRss, formatMb } from './memory.js'
 export { SessionRegistry, type ManagedSession } from './registry.js'

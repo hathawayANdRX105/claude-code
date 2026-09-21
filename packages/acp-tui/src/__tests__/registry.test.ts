@@ -9,6 +9,7 @@ function makeRegistry(...cwds: string[]): SessionRegistry {
       cwd,
       title: cwd,
       active: false,
+      lines: [],
     })
   }
   return registry
@@ -76,6 +77,7 @@ describe('SessionRegistry', () => {
       cwd: 'a',
       title: 'renamed',
       active: false,
+      lines: [],
     })
     expect(registry.count).toBe(1)
     expect(registry.list()[0].title).toBe('renamed')

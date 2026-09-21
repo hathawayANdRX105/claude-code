@@ -1,0 +1,60 @@
+# github_pull_requests.yaml — PR 元数据 + body 结构契约
+# 使用方式: gate Rust PR validator 读取本文件, 规则参数从 YAML 读取。
+
+# 必填的 body 段 (按出现顺序检查)
+required_body_headings: ["Issue", "What", "Why", "Construction plan", "How to test", "Delivery record", "Checklist"]
+
+# 必填的标题
+required_title_headings: ["Goal", "Background", "Done when", "Suspected areas", "Out of scope"]
+# 本仓库为上游 fork，commit 与 PR 标题用英文 conventional commit 风格
+title_must_be_chinese: false
+# 标题禁止出现的中文全角标点
+forbidden_brackets_in_title:
+  - "（"
+  - "）"
+  - "「"
+  - "」"
+  - "【"
+  - "】"
+  - "『"
+  - "』"
+  - "《"
+  - "》"
+  - "〈"
+  - "〉"
+
+# branch 前缀
+allowed_branch_prefixes:
+  - "feat/"
+  - "fix/"
+  - "chore/"
+  - "exp/"
+  - "main"
+  - "master"
+  - "release/"
+
+# Fixes 关键词
+fixes_keywords: ["Fixes", "Closes", "Resolves"]
+
+# type label
+type_labels_cfg: ["bug", "enhancement", "feature", "documentation", "chore", "refactor", "tests", "epic"]
+
+# CI 状态检查策略
+ci_check_mode: "WARN"
+
+# Done when 检查策略
+done_when_check_mode: "WARN"
+
+# 关键词建议 (WARN 级)
+keyword_label_suggestions:
+  "bug": "bug"
+  "修复": "bug"
+  "新功能": "enhancement"
+  "功能": "enhancement"
+  "清理": "chore"
+  "优化": "refactor"
+  "测试": "tests"
+
+linkage_check:
+  plain_text_links_severity: "INFO"
+  fixes_epic_severity: "WARN"

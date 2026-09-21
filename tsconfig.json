@@ -23,7 +23,12 @@
       "@claude-code-best/agent-tools/*": ["./packages/agent-tools/src/*"],
       "@claude-code-best/agent-tools": ["./packages/agent-tools/src/index.ts"],
       "@claude-code-best/weixin/*": ["./packages/weixin/src/*"],
-      "@claude-code-best/weixin": ["./packages/weixin/src/index.ts"],
+      "@claude-code-best/acp-client/*": ["./packages/acp-client/src/*"],
+      "@claude-code-best/acp-client": ["./packages/acp-client/src/index.ts"],
+      "@claude-code-best/acp-daemon/*": ["./packages/acp-daemon/src/*"],
+      "@claude-code-best/acp-daemon": ["./packages/acp-daemon/src/index.ts"],
+      "@claude-code-best/acp-tui/*": ["./packages/acp-tui/src/*"],
+      "@claude-code-best/acp-tui": ["./packages/acp-tui/src/index.ts"],
       "@claude-code-best/workflow-engine/*": [
         "./packages/workflow-engine/src/*"
       ],

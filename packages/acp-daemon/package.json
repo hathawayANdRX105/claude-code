@@ -1,5 +1,5 @@
 {
-  "name": "@claude-code/acp-daemon",
+  "name": "@claude-code-best/acp-daemon",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@claude-code/acp-client": "*",
+    "@claude-code-best/acp-client": "*",
     "@agentclientprotocol/sdk": "*"
   }
 }

@@ -4,14 +4,10 @@ import { Readable, Writable } from 'node:stream'
 import { spawn } from 'node:child_process'
 import { AcpConnectionError, type AcpDaemonOptions } from './types.js'
 
-type OwnedChild = {
+export type OwnedChild = {
+  pid: number | null
   kill: (signal?: NodeJS.Signals) => void
 }
-
-/**
- * Narrow view of ClientContext so callers don't depend on the full SDK type
- * (and tests can stub it).
- */
 export interface ContextApi {
   request(method: string, params?: unknown): Promise<unknown>
   buildSession(cwd: string): { start(): Promise<ActiveSession> }
@@ -42,6 +38,11 @@ export class AcpClientConnection {
     this.child = child
   }
 
+  /** OS pid of the spawned daemon, for memory accounting. */
+  get daemonPid(): number | null {
+    return this.child?.pid ?? null
+  }
+
   isClosed(): boolean {
     return this.closed
   }
@@ -51,8 +52,17 @@ export class AcpClientConnection {
    * build a bare instance and inject a context instead of using a stream.
    */
   attach(app: ClientApp, stream: Stream): void {
-    this.ready = app.connectWith(stream, async ctx => {
+    // connectWith resolves only when the op returns — but this op must NOT
+    // return, or the SDK tears the connection down. So the awaitable handed to
+    // callers is a separate promise that fires the moment the context arrives,
+    // not the connectWith result.
+    let readyResolve!: () => void
+    this.ready = new Promise<void>(resolve => {
+      readyResolve = resolve
+    })
+    app.connectWith(stream, async ctx => {
       this.ctx = ctx as unknown as ContextApi
+      readyResolve()
       await new Promise<void>(resolve => {
         this.done = { resolve }
       })
@@ -130,9 +140,9 @@ export class AcpClientConnection {
       env: { ...process.env, ...options.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
-
     const { stream, app } = connectStream(child.stdout, child.stdin)
     const connection = new AcpClientConnection({
+      pid: child.pid ?? null,
       kill: signal => child.kill(signal),
     })
     connection.attach(app, stream)

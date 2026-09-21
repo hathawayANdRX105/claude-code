@@ -1,0 +1,67 @@
+import { render } from 'ink';
+import { AcpClientConnection } from '@claude-code-best/acp-client';
+import { AcpTuiApp, SessionRegistry } from '@claude-code-best/acp-tui';
+import { enableConfigs } from '../utils/config.js';
+import { applySafeConfigEnvironmentVariables } from '../utils/managedEnv.js';
+
+/**
+ * `ccb tui`: a thin multi-session client over one shared `ccb --acp` daemon.
+ *
+ * Every session lives in the single spawned daemon process; this process only
+ * renders and forwards input — the split is what turns N×208MB into one
+ * process. The status bar shows both halves so the win is observable.
+ */
+export async function runTui(): Promise<void> {
+  enableConfigs();
+  // Pull ANTHROPIC_BASE_URL / auth token from settings into env so the daemon
+  // child can authenticate — same reason runAcpAgent does this.
+  applySafeConfigEnvironmentVariables();
+
+  // A TTY that reports a zero size (bun's -e entrypoint, some containers) makes
+  // ink measure a zero-width terminal and emit an empty frame, so the whole UI
+  // renders as a blank screen. Fall back to a usable size before ink reads it.
+  const stdout = process.stdout as typeof process.stdout & {
+    columns?: number;
+    rows?: number;
+  };
+  if (stdout.isTTY && (!stdout.columns || !stdout.rows)) {
+    stdout.columns = stdout.columns || 80;
+    stdout.rows = stdout.rows || 24;
+  }
+
+  const cwd = process.cwd();
+  // process.execPath is this very binary in a --compile bundle; CCB_BIN lets
+  // a dev shell point at an installed ccb to act as the daemon.
+  const connection = AcpClientConnection.spawn({
+    command: process.env.CCB_BIN ?? process.execPath,
+    args: ['--acp'],
+    env: {
+      // An empty MCP list is required: without it the agent answers session/new
+      // with -32602.
+      ACP_MCP_SERVERS: '[]',
+    },
+  });
+
+  await connection.waitReady();
+  await connection.initialize();
+
+  const registry = new SessionRegistry();
+
+  const instance = render(
+    <AcpTuiApp connection={connection} registry={registry} daemonPid={connection.daemonPid} cwd={cwd} />,
+  );
+
+  // Any unhandled failure in the UI layer must still tear the daemon down —
+  // otherwise the shared process is orphaned holding the socket-less pipes.
+  const teardown = (signal: NodeJS.Signals) => {
+    connection.close();
+    instance.unmount();
+    process.exit(signal === 'SIGINT' ? 130 : 0);
+  };
+  process.on('SIGINT', teardown);
+  process.on('SIGTERM', teardown);
+
+  await new Promise<void>(resolve => {
+    process.on('exit', () => resolve());
+  });
+}

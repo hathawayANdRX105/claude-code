@@ -1,4 +1,5 @@
 import type { ActiveSession } from '@agentclientprotocol/sdk'
+import type { DisplayLine } from './renderUpdate.js'
 
 /**
  * One open session as the TUI sees it. The daemon owns the real state; this
@@ -11,6 +12,8 @@ export interface ManagedSession {
   active: boolean
   /** SDK handle; present once session/new completed. */
   session?: ActiveSession
+  /** Conversation rendered so far, in order. */
+  lines: DisplayLine[]
 }
 
 /**
@@ -29,9 +32,18 @@ export class SessionRegistry {
     if (!this.sessions.has(session.sessionId)) {
       this.order.push(session.sessionId)
     }
-    this.sessions.set(session.sessionId, session)
-    if (isFirst) session.active = true
+    const record: ManagedSession = { ...session, lines: session.lines ?? [] }
+    if (isFirst) record.active = true
+    this.sessions.set(session.sessionId, record)
     if (this.cursor < 0) this.cursor = 0
+    this.notify()
+  }
+
+  /** Append one rendered line to a session's conversation and notify. */
+  appendLine(sessionId: string, line: DisplayLine): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    session.lines.push(line)
     this.notify()
   }
 

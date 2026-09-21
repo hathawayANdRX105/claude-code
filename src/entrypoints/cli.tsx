@@ -160,6 +160,15 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Fast-path for `ccb tui`: thin multi-session client over one shared daemon.
+  if (feature('ACP') && args[0] === 'tui') {
+    profileCheckpoint('cli_tui_path');
+    const { runTui } = await import('../entrypoints/tui.js');
+    await runTui();
+    flushStartupProfile();
+    return;
+  }
+
   if (args[0] === 'weixin') {
     profileCheckpoint('cli_weixin_path');
     const { handleWeixinCli } = await import('@claude-code-best/weixin');

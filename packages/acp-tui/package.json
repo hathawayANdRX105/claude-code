@@ -1,5 +1,5 @@
 {
-  "name": "@claude-code/acp-tui",
+  "name": "@claude-code-best/acp-tui",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,8 +7,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@claude-code/acp-client": "*",
-    "@claude-code/acp-daemon": "*",
+    "@claude-code-best/acp-client": "*",
+    "@claude-code-best/acp-daemon": "*",
     "@agentclientprotocol/sdk": "*",
     "react": "*",
     "ink": "*"
