@@ -17,7 +17,9 @@ log('waitReady done')
 await conn.initialize()
 log('initialize done')
 
-const session = await conn.withContext(async ctx => ctx.buildSession('/tmp').start())
+const session = await conn.withContext(async ctx =>
+  ctx.buildSession('/tmp').start(),
+)
 log(`session created: ${session.sessionId}`)
 
 await session.prompt('say only the word OK')

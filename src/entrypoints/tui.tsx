@@ -28,14 +28,14 @@ export async function runTui(): Promise<void> {
       // with -32602.
       ACP_MCP_SERVERS: '[]',
     },
-  })
+  });
 
   await connection.waitReady();
   await connection.initialize();
 
   const registry = new SessionRegistry();
 
-const instance = render(
+  const instance = render(
     <AcpTuiApp connection={connection} registry={registry} daemonPid={connection.daemonPid} cwd={cwd} />,
   );
 
