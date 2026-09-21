@@ -3,9 +3,10 @@
  */
 export function daemonSocketPath(): string {
   const runtime = process.env.XDG_RUNTIME_DIR
-  const base = runtime && runtime.startsWith('/')
-    ? runtime
-    : `${process.env.HOME ?? '/tmp'}/.claude`
+  const base =
+    runtime && runtime.startsWith('/')
+      ? runtime
+      : `${process.env.HOME ?? '/tmp'}/.claude`
   return `${base}/ccb-acp-daemon.sock`
 }
 

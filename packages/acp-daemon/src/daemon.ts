@@ -1,6 +1,10 @@
 import { unlinkSync } from 'node:fs'
 import { createServer, type Socket } from 'node:net'
-import { daemonLockPath, type DaemonOptions, DEFAULT_IDLE_TIMEOUT_SEC } from './paths.js'
+import {
+  daemonLockPath,
+  type DaemonOptions,
+  DEFAULT_IDLE_TIMEOUT_SEC,
+} from './paths.js'
 export function acquireDaemonLock(): boolean {
   // Stale lock from a previous crash would block a fresh daemon; the socket
   // unlink in listen() covers the socket, and flock-style exclusivity is
@@ -9,8 +13,7 @@ export function acquireDaemonLock(): boolean {
   // bind, not a lockfile.
   try {
     unlinkSync(daemonLockPath())
-  } catch {
-  }
+  } catch {}
   return true
 }
 export class AcpDaemon {
@@ -34,7 +37,9 @@ export class AcpDaemon {
   listen(socketPath: string): Promise<void> {
     // Stale socket from a previous crash blocks bind; safe to unlink because
     // acquireDaemonLock already established we own the name.
-    try { unlinkSync(socketPath) } catch {}
+    try {
+      unlinkSync(socketPath)
+    } catch {}
 
     return new Promise((resolve, reject) => {
       this.server.once('error', reject)

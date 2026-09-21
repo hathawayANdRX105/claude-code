@@ -21,10 +21,7 @@ function mockContext(): ContextApi & { calls: Array<[string, unknown]> } {
 }
 
 function testConnection(ctx: ContextApi): AcpClientConnection {
-  const conn = new AcpClientConnection(
-    { close: () => {} } as never,
-    null,
-  )
+  const conn = new AcpClientConnection({ close: () => {} } as never, null)
   conn.setContextForTest(ctx)
   return conn
 }
@@ -34,7 +31,9 @@ describe('AcpClientConnection', () => {
     const ctx = mockContext()
     const conn = testConnection(ctx)
 
-    const result = await conn.withContext(async c => c.request('session/list', {}))
+    const result = await conn.withContext(async c =>
+      c.request('session/list', {}),
+    )
     expect((result as { echoed: string }).echoed).toBe('session/list')
     expect(ctx.calls).toEqual([['session/list', {}]])
   })
@@ -42,7 +41,9 @@ describe('AcpClientConnection', () => {
   it('starts a session via buildSession', async () => {
     const conn = testConnection(mockContext())
 
-    const session = await conn.withContext(async c => c.buildSession('/tmp').start())
+    const session = await conn.withContext(async c =>
+      c.buildSession('/tmp').start(),
+    )
     expect(session as unknown as { sessionId: string; cwd: string }).toEqual({
       sessionId: 'synthetic',
       cwd: '/tmp',

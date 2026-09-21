@@ -1,5 +1,9 @@
 import { ClientApp, ndJsonStream } from '@agentclientprotocol/sdk'
-import type { ActiveSession, ClientConnection, Stream } from '@agentclientprotocol/sdk'
+import type {
+  ActiveSession,
+  ClientConnection,
+  Stream,
+} from '@agentclientprotocol/sdk'
 import { Readable, Writable } from 'node:stream'
 import { spawn } from 'node:child_process'
 import { AcpConnectionError, type AcpDaemonOptions } from './types.js'
@@ -58,7 +62,9 @@ export class AcpClientConnection {
     // close() flips this before killing so the exit handler can tell a
     // deliberate shutdown from a crash.
     let thisClosed = false
-    const markClosed = () => { thisClosed = true }
+    const markClosed = () => {
+      thisClosed = true
+    }
 
     child.on('exit', (code, signal) => {
       if (thisClosed) return
@@ -71,7 +77,10 @@ export class AcpClientConnection {
     })
 
     const conn = connectStream(child.stdout, child.stdin)
-    return new AcpClientConnection(conn, { kill: s => child.kill(s), markClosed })
+    return new AcpClientConnection(conn, {
+      kill: s => child.kill(s),
+      markClosed,
+    })
   }
 
   /**

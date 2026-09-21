@@ -9,7 +9,10 @@ import { AcpDaemon } from '../daemon.js'
  * leftover file blocks the next bind.
  */
 function uniqueSocket(): string {
-  return join(tmpdir(), `acp-daemon-test-${Date.now()}-${Math.random().toString(36).slice(2)}.sock`)
+  return join(
+    tmpdir(),
+    `acp-daemon-test-${Date.now()}-${Math.random().toString(36).slice(2)}.sock`,
+  )
 }
 
 async function dial(path: string): Promise<void> {
@@ -24,7 +27,9 @@ describe('AcpDaemon', () => {
   it('accepts a connection and counts it', async () => {
     const socketPath = uniqueSocket()
     const accepted: number[] = []
-    const daemon = new AcpDaemon(() => { accepted.push(1) })
+    const daemon = new AcpDaemon(() => {
+      accepted.push(1)
+    })
 
     await daemon.listen(socketPath)
     expect(daemon.connectionCount).toBe(0)

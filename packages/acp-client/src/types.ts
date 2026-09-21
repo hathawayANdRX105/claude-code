@@ -1,4 +1,7 @@
-import type { AgentRequestResponsesByMethod, SessionId } from '@agentclientprotocol/sdk'
+import type {
+  AgentRequestResponsesByMethod,
+  SessionId,
+} from '@agentclientprotocol/sdk'
 
 /**
  * A session managed by the ACP daemon.
