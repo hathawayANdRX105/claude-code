@@ -1,0 +1,51 @@
+import { readFile, unlink } from 'fs/promises'
+import { createConnection, type Socket } from 'net'
+import { homedir, tmpdir } from 'os'
+import { join } from 'path'
+
+export function defaultSharedAddress(): string {
+  if (process.platform === 'win32') return '\\\\.\\pipe\\claude-shared'
+  return join(
+    process.env.XDG_RUNTIME_DIR ?? join(tmpdir(), `claude-${homedir().length}`),
+    'claude.sock',
+  )
+}
+
+export async function connectShared(address: string): Promise<Socket> {
+  const { promise, resolve, reject } = Promise.withResolvers<Socket>()
+  const socket = createConnection(address)
+  socket.once('connect', () => resolve(socket))
+  socket.once('error', reject)
+  return promise
+}
+
+export async function sharedAddressLive(address: string): Promise<boolean> {
+  try {
+    const socket = await connectShared(address)
+    socket.end()
+    return true
+  } catch {
+    return false
+  }
+}
+export async function reapStaleAddress(address: string): Promise<boolean> {
+  let lock: { pid?: unknown }
+  try {
+    lock = JSON.parse(await readFile(`${address}.lock`, 'utf8')) as {
+      pid?: unknown
+    }
+  } catch {
+    return false
+  }
+  if (!Number.isInteger(lock.pid) || Number(lock.pid) <= 0) return false
+  try {
+    process.kill(Number(lock.pid), 0)
+    return false
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return false
+  }
+  if (!address.startsWith('\\\\.\\pipe\\'))
+    await unlink(address).catch(() => undefined)
+  await unlink(`${address}.lock`).catch(() => undefined)
+  return true
+}

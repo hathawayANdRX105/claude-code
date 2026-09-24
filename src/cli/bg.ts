@@ -277,62 +277,32 @@ export async function killHandler(target: string | undefined): Promise<void> {
  * falls back to DetachedEngine on Windows or when tmux is absent.
  */
 export async function handleBgStart(args: string[]): Promise<void> {
-  const engine = await selectEngine()
-
-  // Strip --bg/--background from args (for backward-compat shortcut)
-  const filteredArgs = args.filter(a => a !== '--bg' && a !== '--background')
-
-  // Engines without interactive TTY input (e.g. detached) require -p/--print
-  // or piped input. Tmux provides a virtual terminal so it works without -p.
-  if (
-    !engine.supportsInteractiveInput &&
-    !filteredArgs.some(a => a === '-p' || a === '--print' || a === '--pipe')
-  ) {
-    console.error(
-      'Error: Background sessions with detached engine require -p/--print flag.\n' +
-        'The detached engine has no terminal for interactive input.\n\n' +
-        'Usage:\n' +
-        '  claude daemon bg -p "your prompt here"\n' +
-        '  echo "prompt" | claude daemon bg --pipe',
-    )
-    if (process.platform !== 'win32') {
-      console.error(
-        '\nAlternatively, install tmux for interactive background sessions:\n' +
-          `  ${process.platform === 'darwin' ? 'brew install tmux' : 'sudo apt install tmux'}`,
-      )
-    }
-    process.exitCode = 1
-    return
-  }
-
-  const sessionName = `claude-bg-${randomUUID().slice(0, 8)}`
-  const logPath = join(
-    getClaudeConfigHomeDir(),
-    'sessions',
-    'logs',
-    `${sessionName}.log`,
+  const filteredArgs = args.filter(
+    a => a !== '--bg' && a !== '--background' && a !== '-p' && a !== '--print',
   )
-
-  try {
-    const result = await engine.start({
-      sessionName,
-      args: filteredArgs,
-      env: { ...process.env },
-      logPath,
-      cwd: process.cwd(),
-    })
-
-    console.log(`Background session started: ${result.sessionName}`)
-    console.log(`  Engine: ${result.engineUsed}`)
-    console.log(`  Log: ${result.logPath}`)
-    console.log()
-    console.log(
-      `Use \`claude daemon attach ${result.sessionName}\` to reconnect.`,
-    )
-    console.log(`Use \`claude daemon status\` to check status.`)
-    console.log(`Use \`claude daemon kill ${result.sessionName}\` to stop.`)
-  } catch (e) {
-    console.error(e instanceof Error ? e.message : String(e))
-    process.exitCode = 1
-  }
+  const input = filteredArgs.join(' ').trim()
+  const shared = await import('../daemon/sharedSession.js')
+  const address =
+    process.env.CLAUDE_SHARED_SOCKET ?? shared.defaultSharedAddress()
+  const socket = await shared.connectShared(address)
+  const result = await new Promise<Record<string, unknown>>(
+    (resolve, reject) => {
+      socket.once('data', chunk =>
+        resolve(
+          JSON.parse(chunk.toString().split('\n')[0] ?? '{}') as Record<
+            string,
+            unknown
+          >,
+        ),
+      )
+      socket.once('error', reject)
+      socket.write(
+        `${JSON.stringify({ op: 'bg', command: 'start', cwd: process.cwd(), ...(input ? { input } : {}) })}\n`,
+      )
+    },
+  )
+  socket.end()
+  if (result.op === 'error') throw new Error(String(result.message))
+  console.log(`Background session started: ${String(result.sessionId)}`)
+  console.log('  Engine: shared')
 }

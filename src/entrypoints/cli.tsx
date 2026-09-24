@@ -98,6 +98,61 @@ async function main(): Promise<void> {
     }
   }
 
+  if (args[0] === 'shared' && (args[1] === 'serve' || args[1] === 'connect')) {
+    const address = process.env.CLAUDE_SHARED_SOCKET;
+    if (args[1] === 'connect') {
+      const client = await import('../daemon/sharedClient.js');
+      const target = address ?? client.defaultSharedAddress();
+      if (!(await client.sharedAddressLive(target))) {
+        await client.reapStaleAddress(target);
+        const { spawn } = await import('child_process');
+        const child = spawn(process.execPath, [process.argv[1] ?? '', 'shared', 'serve'], {
+          detached: true,
+          stdio: 'ignore',
+          env: process.env,
+        });
+        child.unref();
+        const { promise, resolve } = Promise.withResolvers<void>();
+        const started = Date.now();
+        const wait = (): void => {
+          void client.sharedAddressLive(target).then(live => {
+            if (live || Date.now() - started > 2000) resolve();
+            else setTimeout(wait, 50);
+          });
+        };
+        wait();
+        await promise;
+      }
+      const socket = await client.connectShared(target);
+      const sessionId = args[2];
+      socket.write(
+        `${JSON.stringify({ op: 'hello', kind: 'interactive', cwd: process.cwd(), ...(sessionId ? { sessionId } : {}) })}\n`,
+      );
+      socket.pipe(process.stdout);
+      process.stdin.pipe(socket);
+      return;
+    }
+    const { enableConfigs } = await import('../utils/config.js');
+    enableConfigs();
+    const shared = await import('../daemon/sharedSession.js');
+    const { installSharedTurnRunner } = await import('../daemon/sharedTurn.js');
+    installSharedTurnRunner();
+    const target = address ?? shared.defaultSharedAddress();
+    await shared.reapStaleAddress(target);
+    const server = await shared.startSharedServer(target);
+    try {
+      await shared.writeSharedLock(target);
+    } catch (error) {
+      server.close();
+      const { unlink } = await import('fs/promises');
+      await unlink(`${target}.lock.${process.pid}.tmp`).catch(() => undefined);
+      if (!target.startsWith('\\\\.\\pipe\\')) await unlink(target).catch(() => undefined);
+      throw error;
+    }
+    console.log(`listening ${target}`);
+    return;
+  }
+
   // For all other paths, load the startup profiler
   const { profileCheckpoint, profileReport } = await import('../utils/startupProfiler.js');
   profileCheckpoint('cli_entry');

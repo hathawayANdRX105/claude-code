@@ -235,24 +235,14 @@ async function runSupervisor(args: string[]): Promise<void> {
 
   console.log(`[daemon] supervisor starting in ${dir}`)
 
-  const workers: WorkerState[] = [
-    {
-      kind: 'remoteControl',
-      process: null,
-      backoffMs: BACKOFF_INITIAL_MS,
-      failureCount: 0,
-      parked: false,
-      lastStartTime: 0,
-      restartTimer: null,
-    },
-  ]
+  const workers: WorkerState[] = []
 
   // Write daemon state file so other CLI processes can query/stop us
   writeDaemonState({
     pid: process.pid,
     cwd: dir,
     startedAt: new Date().toISOString(),
-    workerKinds: workers.map(w => w.kind),
+    workerKinds: ['remoteControl'],
     lastStatus: 'running',
   })
 
@@ -277,12 +267,8 @@ async function runSupervisor(args: string[]): Promise<void> {
   process.on('SIGTERM', shutdown)
   process.on('SIGINT', shutdown)
 
-  // Spawn and supervise workers
-  for (const worker of workers) {
-    if (!controller.signal.aborted) {
-      spawnWorker(worker, dir, config, controller.signal)
-    }
-  }
+  const { runDaemonWorker } = await import('./workerRegistry.js')
+  void runDaemonWorker('remoteControl')
 
   // Wait for abort signal
   await new Promise<void>(resolve => {
