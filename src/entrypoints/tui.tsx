@@ -5,7 +5,7 @@ import { enableConfigs } from '../utils/config.js';
 import { applySafeConfigEnvironmentVariables } from '../utils/managedEnv.js';
 
 /**
- * `ccb tui`: a thin multi-session client over one shared `ccb --acp` daemon.
+ * `ccb client`: a thin multi-session client over one shared `ccb --acp` daemon.
  *
  * Every session lives in the single spawned daemon process; this process only
  * renders and forwards input — the split is what turns N×208MB into one

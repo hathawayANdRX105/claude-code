@@ -199,11 +199,11 @@ async function main(): Promise<void> {
     flushStartupProfile();
     return;
   }
-  // Fast-path for `ccb tui`: thin multi-session client over one shared daemon.
+  // Fast-path for `ccb client`: thin multi-session client over one shared daemon.
   // Deliberately NOT the default bare `ccb` — this UI is a minimal cut (text +
   // tool lines + status bar only) and does not replace the full interactive
   // CLI. Opt in with the subcommand.
-  if (feature('ACP') && args[0] === 'tui') {
+  if (feature('ACP') && args[0] === 'client') {
     profileCheckpoint('cli_tui_path');
     const { runTui } = await import('../entrypoints/tui.js');
     await runTui();
