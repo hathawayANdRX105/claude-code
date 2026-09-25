@@ -2,8 +2,9 @@
 
 `~/.claude/providers.json` declares third-party model endpoints in either wire
 format: OpenAI Chat Completions (`openai-compat`) or the Anthropic Messages API
-(`anthropic`). When an entry also lists `models`, that list is shown in `/model`
-grouped under the provider.
+(`anthropic`). Every provider's listed models appear in the `/model` picker as
+`providerId/modelId` rows alongside the built-in options; a session can mix
+providers per request.
 
 ## Minimal example
 
@@ -33,11 +34,12 @@ grouped under the provider.
 | --- | --- | --- |
 | `id` | yes | kebab-case id, used by `/providers use <id>` |
 | `kind` | yes | wire protocol: `openai-compat` (OpenAI Chat Completions) or `anthropic` (Anthropic Messages API, e.g. a relay/proxy serving `/v1/messages`) |
-| `baseUrl` | yes | full base URL, including `/v1` when the endpoint needs it |
+| `baseUrl` | yes | full base URL. `openai-compat`: include the `/v1` suffix when the endpoint needs it. `anthropic`: the base the SDK's client targets — the SDK appends `/v1/messages` itself, so do NOT add a `/v1` suffix |
 | `apiKeyEnv` | yes | name of the env var holding the key — never the key itself |
 | `defaultModel` | yes | model id used when the provider is activated |
 | `compatRule` | yes | `permissive`, `strict-openai`, `cerebras`, `groq`, or `deepseek`; ignored for `kind: "anthropic"`
 | `models` | no | model ids this provider serves; see below |
+| `fastModel` | no | the provider's fast/background role model (reserved; declared but not consumed in this release) |
 
 ## Model fields
 
@@ -81,27 +83,26 @@ the global session is in OpenAI-compat mode.
 
 ## How a provider is matched to the running session
 
-A provider's `models` list takes effect when its `baseUrl` matches the session's
-`OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`. Matching ignores a trailing slash and
-one trailing `/v1`, so all three of these match the entry above:
+There is no endpoint matching: a provider's `baseUrl` is not compared against
+any session env var. A provider takes effect **per model value** — a model
+string of the form `<providerId>/<modelId>` (first slash splits the provider
+from the model; model ids may contain further slashes) routes that request to
+the named provider's endpoint and wire format. A bare model id routes to the
+globally configured provider as before.
 
-```
-http://localhost:3100
-http://localhost:3100/v1
-http://localhost:3100/v1/
-```
-
-If the URL does not match, or the matched entry has no `models`, the built-in
-list stays. Built-in providers (cerebras, groq, qwen, deepseek) are always
-available; a user entry with the same `id` replaces the built-in one.
+Built-in providers (cerebras, groq, qwen, deepseek) are always available; a
+user entry with the same `id` replaces the built-in one.
 
 ## Where the model list applies
 
-- `/model` shows only the listed ids, in file order.
+- The `/model` picker lists every configured provider's models as
+  `providerId/modelId` rows, grouped by provider, alongside the built-in
+  options — one session can mix providers (each prefixed value routes to its
+  own provider).
 - The context window for auto-compact and token accounting comes from
-  `contextWindow`.
-- Selecting a listed model skips the live model-probing call, so no request is
-  sent to validate it.
+  `contextWindow`, resolved by the provider named in the model's prefix.
+- Selecting a provider-listed model skips the live model-probing call, so no
+  request is sent to validate it.
 
 ## Precedence for context window
 
@@ -116,27 +117,47 @@ Highest wins:
 both files declare a window for it.
 
 The `[1m]` suffix used by built-in aliases is checked after the provider value.
-It only matters for aliases (`sonnet[1m]`, `opus[1m]`), which do not appear when
-a provider list replaces the built-in rows.
+It only matters for built-in aliases (`sonnet[1m]`, `opus[1m]`); provider rows
+use `providerId/modelId` and are not affected by the suffix.
 
 ## Activating a provider
 
 `/providers use <id>` prints shell exports; it does not change the running
 process. Put the same values in `settings.json` `env` to make them apply on
-startup:
+startup. The exported set depends on `kind`:
+
+`openai-compat`:
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_USE_OPENAI": "1",
+    "OPENAI_BASE_URL": "http://localhost:3100/v1",
+    "OPENAI_API_KEY": "${WILDTOKEN_API_KEY}",
+    "OPENAI_MODEL": "grok-4.7"
+  }
+}
+```
+
+`anthropic` (activates the native first-party path pointed at the relay):
 
 ```json
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://localhost:3100",
-    "ANTHROPIC_CUSTOM_MODEL_OPTIONS": "grok-4.7,kimi-k3,gpt-6-astra"
+    "ANTHROPIC_API_KEY": "${WILDTOKEN_API_KEY}",
+    "ANTHROPIC_MODEL": "claude-sonnet-4-5"
   }
 }
 ```
 
-`ANTHROPIC_CUSTOM_MODEL_OPTIONS` is a separate mechanism: it appends entries to
-the built-in list. Prefer `providers.json` `models` when you want a list that
-replaces the built-in rows.
+Activation sets the session's *bare* (default) model. Provider-prefixed model
+values route per request and work even when the global session runs in a
+different provider mode.
+
+`ANTHROPIC_CUSTOM_MODEL_OPTIONS` is a separate mechanism: it appends bare model
+ids to the built-in list. Prefer `providers.json` `models` when you want
+provider-grouped rows.
 
 ## Model switch precedence
 
