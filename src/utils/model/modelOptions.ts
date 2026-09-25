@@ -574,7 +574,7 @@ function customModelIds(): string[] {
   return one ? [one] : []
 }
 
-function providerModelOptions(): ModelOption[] {
+export function providerModelOptions(): ModelOption[] {
   const options: ModelOption[] = []
   for (const provider of loadProviders()) {
     const models = provider.models

@@ -8,12 +8,14 @@ import {
   parseUserSpecifiedModel,
 } from './model.js'
 import { getAPIProvider } from './providers.js'
+import { providerModelOptions } from './modelOptions.js'
+import { isProviderModelValue } from '../../services/providerRegistry/routing.js'
 
 export const AGENT_MODEL_OPTIONS = [...MODEL_ALIASES, 'inherit'] as const
 export type AgentModelAlias = (typeof AGENT_MODEL_OPTIONS)[number]
 
 export type AgentModelOption = {
-  value: AgentModelAlias
+  value: string
   label: string
   description: string
 }
@@ -37,7 +39,7 @@ export function getDefaultSubagentModel(): string {
 export function getAgentModel(
   agentModel: string | undefined,
   parentModel: string,
-  toolSpecifiedModel?: ModelAlias,
+  toolSpecifiedModel?: string,
   permissionMode?: PermissionMode,
 ): string {
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
@@ -68,6 +70,10 @@ export function getAgentModel(
 
   // Prioritize tool-specified model if provided
   if (toolSpecifiedModel) {
+    // A provider-prefixed model (spec 0003) is used as-is.
+    if (isProviderModelValue(toolSpecifiedModel)) {
+      return toolSpecifiedModel
+    }
     if (aliasMatchesParentTier(toolSpecifiedModel, parentModel)) {
       return parentModel
     }
@@ -87,6 +93,10 @@ export function getAgentModel(
     })
   }
 
+  // A provider-prefixed model (spec 0003) is used as-is.
+  if (isProviderModelValue(agentModelWithExp)) {
+    return agentModelWithExp
+  }
   if (aliasMatchesParentTier(agentModelWithExp, parentModel)) {
     return parentModel
   }
@@ -132,7 +142,7 @@ export function getAgentModelDisplay(model: string | undefined): string {
  * Get available model options for agents
  */
 export function getAgentModelOptions(): AgentModelOption[] {
-  return [
+  const base: AgentModelOption[] = [
     {
       value: 'sonnet',
       label: 'Sonnet',
@@ -153,5 +163,15 @@ export function getAgentModelOptions(): AgentModelOption[] {
       label: 'Inherit from parent',
       description: 'Use the same model as the main conversation',
     },
+  ]
+  // Provider-prefixed models so a subagent can be aimed at a specific provider
+  // model (spec 0003 AC-5).
+  return [
+    ...base,
+    ...providerModelOptions().map(option => ({
+      value: option.value as string,
+      label: option.label,
+      description: option.description,
+    })),
   ]
 }
