@@ -15,6 +15,7 @@ import type { AgentId } from '../../../types/ids.js'
 import type { Tools } from '../../../Tool.js'
 import { getSessionId } from '../../../bootstrap/state.js'
 import { getOpenAIClient } from './client.js'
+import { bareModelId, routeModel } from '../../providerRegistry/routing.js'
 import {
   formatOpenAIPromptCacheKey,
   getOfficialOpenAIPromptCacheKey,
@@ -228,8 +229,10 @@ export async function* queryModelOpenAI(
   void
 > {
   try {
-    // 1. Resolve model name
-    const openaiModel = resolveOpenAIModel(options.model)
+    // 1. Resolve model name. A provider-prefixed model (spec 0003) routes to
+    // that provider's endpoint and sends the bare model id on the wire.
+    const routed = routeModel(options.model)
+    const openaiModel = resolveOpenAIModel(bareModelId(options.model))
 
     // 2. Normalize messages using shared preprocessing
     const messagesForAPI = normalizeMessagesForAPI(messages, tools)
@@ -391,6 +394,8 @@ export async function* queryModelOpenAI(
             maxRetries: 0,
             fetchOverride: options.fetchOverride as unknown as typeof fetch,
             source: options.querySource,
+            baseUrl: routed?.baseUrl,
+            apiKey: routed?.apiKey,
           }).chat.completions.create(
             buildOpenAIRequestBody({
               model: openaiModel,

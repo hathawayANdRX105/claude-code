@@ -3,6 +3,7 @@ import {
   bareModelId,
   parseProviderModel,
   resolveProviderForModel,
+  routeModel,
 } from '../routing.js'
 import type { ProviderConfig } from '../types.js'
 
@@ -63,5 +64,33 @@ describe('resolveProviderForModel', () => {
 
   test('a bare model has no provider', () => {
     expect(resolveProviderForModel('grok-4.7', [wildtoken])).toBeUndefined()
+  })
+})
+
+describe('routeModel', () => {
+  const wildtoken = {
+    id: 'wildtoken',
+    kind: 'openai-compat',
+    baseUrl: 'http://localhost:3100/v1',
+    apiKeyEnv: 'WILDTOKEN_API_KEY',
+    defaultModel: 'grok-4.7',
+    compatRule: 'permissive',
+  } as unknown as ProviderConfig
+
+  test('resolves the endpoint and bare model for a configured provider', () => {
+    process.env.WILDTOKEN_API_KEY = 'wt-key'
+    const route = routeModel('wildtoken/grok-4.7', [wildtoken])
+    expect(route).toEqual({
+      kind: 'openai-compat',
+      baseUrl: 'http://localhost:3100/v1',
+      apiKey: 'wt-key',
+      bareModel: 'grok-4.7',
+      providerId: 'wildtoken',
+    })
+    delete process.env.WILDTOKEN_API_KEY
+  })
+
+  test('returns null for a bare model', () => {
+    expect(routeModel('grok-4.7', [wildtoken])).toBeNull()
   })
 })

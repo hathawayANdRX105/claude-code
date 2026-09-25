@@ -20,7 +20,7 @@ export function parseProviderModel(value: string): ProviderModelRef | null {
 }
 
 // The provider a model value routes to, or undefined for a bare or built in
-// model and for a prefix whose provider id is not configured.
+// model and for a prefix that names no configured provider.
 export function resolveProviderForModel(
   value: string,
   providers?: ProviderConfig[],
@@ -41,4 +41,30 @@ export function bareModelId(value: string): string {
 // provider.
 export function isProviderModelValue(value: string): boolean {
   return resolveProviderForModel(value) !== undefined
+}
+
+export type RoutedEndpoint = {
+  kind: ProviderConfig['kind']
+  baseUrl: string
+  apiKey: string | undefined
+  bareModel: string
+  providerId: string
+}
+
+// Resolve the provider and endpoint a model value routes to, or null for a
+// bare or built in model and for a prefix that names no configured provider.
+// The API key is read from that provider's key env var.
+export function routeModel(
+  value: string,
+  providers?: ProviderConfig[],
+): RoutedEndpoint | null {
+  const provider = resolveProviderForModel(value, providers)
+  if (!provider) return null
+  return {
+    kind: provider.kind,
+    baseUrl: provider.baseUrl,
+    apiKey: process.env[provider.apiKeyEnv],
+    bareModel: bareModelId(value),
+    providerId: provider.id,
+  }
 }

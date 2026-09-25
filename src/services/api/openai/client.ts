@@ -12,7 +12,7 @@ import { getProxyFetchOptions } from 'src/utils/proxy.js'
  * OPENAI_PROJECT_ID: Optional. Project ID.
  */
 
-let cachedClient: OpenAI | null = null
+const cachedClients = new Map<string, OpenAI>()
 
 /**
  * Wrap a fetch so that every response's rate-limit headers are fed into the
@@ -40,11 +40,20 @@ export function getOpenAIClient(options?: {
   maxRetries?: number
   fetchOverride?: typeof fetch
   source?: string
+  baseUrl?: string
+  apiKey?: string
 }): OpenAI {
-  if (cachedClient) return cachedClient
+  const apiKey = options?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+  const baseURL = options?.baseUrl ?? process.env.OPENAI_BASE_URL
 
-  const apiKey = process.env.OPENAI_API_KEY || ''
-  const baseURL = process.env.OPENAI_BASE_URL
+  // Cache one client per (base URL, key) pair so a session that mixes providers
+  // holds a distinct client for each. Per-request fetchOverride clients are
+  // never cached.
+  const cacheKey = `${baseURL ?? ''}::${apiKey}`
+  if (!options?.fetchOverride) {
+    const cached = cachedClients.get(cacheKey)
+    if (cached) return cached
+  }
 
   const baseFetch = options?.fetchOverride ?? (globalThis.fetch as typeof fetch)
   const wrappedFetch = wrapFetchForUsage(baseFetch)
@@ -66,7 +75,7 @@ export function getOpenAIClient(options?: {
   })
 
   if (!options?.fetchOverride) {
-    cachedClient = client
+    cachedClients.set(cacheKey, client)
   }
 
   return client
@@ -74,5 +83,5 @@ export function getOpenAIClient(options?: {
 
 /** Clear the cached client (useful when env vars change). */
 export function clearOpenAIClientCache(): void {
-  cachedClient = null
+  cachedClients.clear()
 }

@@ -25,6 +25,7 @@ import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
 } from 'src/utils/model/providers.js'
+import { routeModel } from '../providerRegistry/routing.js'
 import {
   getAttributionHeader,
   getCLISyspromptPrefix,
@@ -1340,6 +1341,21 @@ async function* queryModel(
   // OpenAI-compatible provider: delegate to the OpenAI adapter layer
   // after shared preprocessing (message normalization, tool filtering,
   // media stripping) but before Anthropic-specific logic (betas, thinking, caching).
+  // Spec 0003: a provider-prefixed model routes to the provider named in its
+  // prefix, independent of the globally configured provider.
+  const providerRoute = routeModel(options.model)
+  if (providerRoute?.kind === 'openai-compat') {
+    const { queryModelOpenAI } = await import('./openai/index.js')
+    yield* queryModelOpenAI(messagesForAPI, systemPrompt, tools, signal, options)
+    return
+  }
+  if (providerRoute?.kind === 'anthropic') {
+    throw new Error(
+      `Provider "${providerRoute.providerId}" uses the anthropic wire protocol, ` +
+      `which is not yet wired for provider prefix routing (spec 0003 follow-up). ` +
+      `Configure it with kind "openai-compat", or set ANTHROPIC_BASE_URL to its base URL.`,
+    )
+  }
   if (getAPIProvider() === 'openai') {
     const { queryModelOpenAI } = await import('./openai/index.js')
     // OpenAI emulates Anthropic's dynamic tool loading client-side. It needs

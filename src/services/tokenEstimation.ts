@@ -4,6 +4,7 @@ import type { BetaMessageParam as MessageParam } from '@anthropic-ai/sdk/resourc
 // to defer ~279KB of AWS SDK code until a Bedrock call is actually made
 import type { CountTokensCommandInput } from '@aws-sdk/client-bedrock-runtime'
 import { getAPIProvider } from 'src/utils/model/providers.js'
+import { routeModel } from './providerRegistry/routing.js'
 import { feature } from 'bun:bundle'
 import { nativeCountTokens } from 'token-counter-napi'
 import { VERTEX_COUNT_TOKENS_ALLOWED_BETAS } from '../constants/betas.js'
@@ -146,6 +147,13 @@ export async function countTokensWithAPI(
   return countMessagesTokensWithAPI([message], [])
 }
 
+// OpenAI-compat providers expose no Anthropic countTokens endpoint. When the
+// main loop model routes to one, fall back to the rough estimate instead of
+// calling the Anthropic client (spec 0003).
+function mainModelIsOpenAICompat(): boolean {
+  return routeModel(getMainLoopModel())?.kind === 'openai-compat'
+}
+
 export async function countMessagesTokensWithAPI(
   messages: Anthropic.Beta.Messages.BetaMessageParam[],
   tools: Anthropic.Beta.Messages.BetaToolUnion[],
@@ -153,7 +161,7 @@ export async function countMessagesTokensWithAPI(
   return withTokenCountVCR(messages, tools, async () => {
     try {
       const provider = getAPIProvider()
-      if (provider === 'gemini') {
+      if (provider === 'gemini' || mainModelIsOpenAICompat()) {
         return roughTokenCountEstimationForAPIRequest(messages, tools)
       }
 
@@ -313,7 +321,7 @@ export async function countTokensViaHaikuFallback(
   tools: Anthropic.Beta.Messages.BetaToolUnion[],
 ): Promise<number | null> {
   const provider = getAPIProvider()
-  if (provider === 'gemini') {
+  if (provider === 'gemini' || mainModelIsOpenAICompat()) {
     return roughTokenCountEstimationForAPIRequest(messages, tools)
   }
 
