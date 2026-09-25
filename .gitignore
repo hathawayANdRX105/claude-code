@@ -66,3 +66,9 @@ vendor/token-counter/**/*.node
 vendor/transcript-parser/**/*.node
 vendor/color-diff/**/*.node
 vendor/file-index/**/*.node
+
+.workflow/
+.wt/
+
+# 本地预构建产物（bun compile 输出），不入库
+build-host/
