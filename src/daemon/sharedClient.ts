@@ -1,4 +1,5 @@
 import { readFile, unlink } from 'fs/promises'
+import { existsSync } from 'node:fs'
 import { createConnection, type Socket } from 'net'
 import { homedir, tmpdir } from 'os'
 import { join } from 'path'
@@ -37,9 +38,21 @@ export async function ensureSharedDaemon(
   if (await sharedAddressLive(address)) return
   await reapStaleAddress(address)
   const { spawn } = await import('child_process')
+  // Forward argv[1] as the entry script only when running from source (dev),
+  // where it is a real .ts/.tsx script. In a compiled single-file binary it is
+  // the bunfs virtual path (/$bunfs/root/...) with no script extension, so it
+  // is NOT forwarded — the binary itself is the entry (ccb shared serve).
+  const entry = process.argv[1]
+  const entryScript =
+    entry && /\.(ts|tsx|js|mjs|cjs)$/.test(entry) && existsSync(entry)
+      ? entry
+      : null
+  const spawnArgs = [entryScript, 'shared', 'serve'].filter(
+    (x): x is string => x !== null,
+  )
   const child = spawn(
     process.execPath,
-    [process.argv[1] ?? '', 'shared', 'serve'],
+    spawnArgs,
     { detached: true, stdio: 'ignore', env: process.env },
   )
   child.unref()
