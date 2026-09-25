@@ -159,6 +159,8 @@ You can also edit `~/.claude/settings.json` directly:
 
 > Supports all Anthropic API-compatible services (e.g., OpenRouter, AWS Bedrock proxies, etc.) as long as the interface is compatible with the Messages API.
 
+> To replace the built-in `/model` rows with your own list, add a `models` array to an entry in `~/.claude/providers.json`. See [`docs/extensibility/custom-providers.mdx`](docs/extensibility/custom-providers.mdx).
+
 ## Feature Flags
 
 All feature toggles are enabled via `FEATURE_<FLAG_NAME>=1` environment variables, for example:
