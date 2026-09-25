@@ -103,26 +103,7 @@ async function main(): Promise<void> {
     if (args[1] === 'connect') {
       const client = await import('../daemon/sharedClient.js');
       const target = address ?? client.defaultSharedAddress();
-      if (!(await client.sharedAddressLive(target))) {
-        await client.reapStaleAddress(target);
-        const { spawn } = await import('child_process');
-        const child = spawn(process.execPath, [process.argv[1] ?? '', 'shared', 'serve'], {
-          detached: true,
-          stdio: 'ignore',
-          env: process.env,
-        });
-        child.unref();
-        const { promise, resolve } = Promise.withResolvers<void>();
-        const started = Date.now();
-        const wait = (): void => {
-          void client.sharedAddressLive(target).then(live => {
-            if (live || Date.now() - started > 2000) resolve();
-            else setTimeout(wait, 50);
-          });
-        };
-        wait();
-        await promise;
-      }
+      await client.ensureSharedDaemon(target);
       const socket = await client.connectShared(target);
       const sessionId = args[2];
       socket.write(
@@ -134,6 +115,10 @@ async function main(): Promise<void> {
     }
     const { enableConfigs } = await import('../utils/config.js');
     enableConfigs();
+    // The daemon now hosts the ACP agent: it needs the same settings-sourced
+    // env (ANTHROPIC_BASE_URL, auth token, model overrides) as --acp.
+    const { applySafeConfigEnvironmentVariables } = await import('../utils/managedEnv.js');
+    applySafeConfigEnvironmentVariables();
     const shared = await import('../daemon/sharedSession.js');
     const { installSharedTurnRunner } = await import('../daemon/sharedTurn.js');
     installSharedTurnRunner();

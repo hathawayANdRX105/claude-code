@@ -4,6 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { getProjectDir } from '../../utils/sessionStoragePortable.js'
+import { ensureSharedDaemon, sharedAddressLive } from '../sharedClient.js'
 import {
   connectShared,
   defaultSharedAddress,
@@ -189,6 +190,42 @@ test('a turn error stops only that session and logout blocks the next model call
 
   client.close()
   other.close()
+  server.close()
+})
+
+test('ensureSharedDaemon returns fast against a live server', async () => {
+  const address = join(root, 'ensure.sock')
+  const server = await startSharedServer(address)
+  const started = Date.now()
+  await ensureSharedDaemon(address)
+  // Live fast path: no spawn, no polling loop.
+  expect(Date.now() - started).toBeLessThan(1_000)
+  expect(await sharedAddressLive(address)).toBe(true)
+  server.close()
+})
+
+test('a vanished client cannot kill the server (ECONNRESET)', async () => {
+  const address = join(root, 'rst.sock')
+  const server = await startSharedServer(address)
+  // The client never reads the hello response, so destroy() sends RST with
+  // data still in flight — the server receives an ECONNRESET error event.
+  // Without a socket error listener that event is fatal to the process.
+  const rude = await connectShared(address)
+  rude.write(
+    `${JSON.stringify({ op: 'hello', kind: 'interactive', cwd: root })}\n`,
+  )
+  rude.destroy()
+  await new Promise(resolve => setTimeout(resolve, 50))
+
+  // The daemon survives and keeps answering new clients.
+  const client = await open(address)
+  const hello = await client.ask({
+    op: 'hello',
+    kind: 'interactive',
+    cwd: root,
+  })
+  expect(typeof hello.sessionId).toBe('string')
+  client.close()
   server.close()
 })
 

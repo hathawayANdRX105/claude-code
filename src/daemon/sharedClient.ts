@@ -28,6 +28,42 @@ export async function sharedAddressLive(address: string): Promise<boolean> {
     return false
   }
 }
+
+/** Spawn `shared serve` when the address is dead and wait for it to listen. */
+export async function ensureSharedDaemon(
+  address: string,
+  timeoutMs = 5000,
+): Promise<void> {
+  if (await sharedAddressLive(address)) return
+  await reapStaleAddress(address)
+  const { spawn } = await import('child_process')
+  const child = spawn(
+    process.execPath,
+    [process.argv[1] ?? '', 'shared', 'serve'],
+    { detached: true, stdio: 'ignore', env: process.env },
+  )
+  child.unref()
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    if (await sharedAddressLive(address)) return
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  throw new Error(`shared daemon did not start at ${address}`)
+}
+
+/** PID recorded by the daemon in `<address>.lock`, for memory accounting. */
+export async function readSharedLockPid(
+  address: string,
+): Promise<number | null> {
+  try {
+    const lock = JSON.parse(await readFile(`${address}.lock`, 'utf8')) as {
+      pid?: unknown
+    }
+    return typeof lock.pid === 'number' && lock.pid > 0 ? lock.pid : null
+  } catch {
+    return null
+  }
+}
 export async function reapStaleAddress(address: string): Promise<boolean> {
   let lock: { pid?: unknown }
   try {

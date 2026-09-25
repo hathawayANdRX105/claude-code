@@ -1473,5 +1473,50 @@ describe('AcpAgent', () => {
       } as any)
       expect(mockSwitchSession).toHaveBeenCalledWith(s1, null)
     })
+
+    test('concurrent prompts on different sessions serialize process-wide', async () => {
+      const agent = new AcpAgent(makeConn())
+      const first = await agent.newSession({ cwd: '/tmp' } as any)
+      const second = await agent.newSession({ cwd: '/tmp' } as any)
+
+      const order: string[] = []
+      let releaseFirst!: () => void
+      ;(forwardSessionUpdates as ReturnType<typeof mock>).mockImplementation(
+        (sessionId: string) => {
+          const tag = sessionId === first.sessionId ? 's1' : 's2'
+          order.push(`start:${tag}`)
+          if (sessionId === first.sessionId) {
+            return new Promise<{ stopReason: 'end_turn' }>(resolve => {
+              releaseFirst = () => {
+                order.push('end:s1')
+                resolve({ stopReason: 'end_turn' })
+              }
+            })
+          }
+          order.push('end:s2')
+          return Promise.resolve({ stopReason: 'end_turn' as const })
+        },
+      )
+
+      const firstTurn = agent.prompt({
+        sessionId: first.sessionId,
+        prompt: [{ type: 'text', text: 'one' }],
+      } as any)
+      await new Promise(resolve => setImmediate(resolve))
+      const secondTurn = agent.prompt({
+        sessionId: second.sessionId,
+        prompt: [{ type: 'text', text: 'two' }],
+      } as any)
+      await new Promise(resolve => setImmediate(resolve))
+
+      // Transcript recording reads global session state asynchronously during
+      // a turn, so s2's engine work must not start while s1 holds the lock.
+      expect(order).toEqual(['start:s1'])
+
+      releaseFirst()
+      await firstTurn
+      await secondTurn
+      expect(order).toEqual(['start:s1', 'end:s1', 'start:s2', 'end:s2'])
+    })
   })
 })

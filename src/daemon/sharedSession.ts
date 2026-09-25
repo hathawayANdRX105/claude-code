@@ -13,6 +13,7 @@ import { dirname, join } from 'path'
 import { getClaudeConfigHomeDir } from '../utils/envUtils.js'
 import { attachNdjsonFramer } from '../utils/ndjsonFramer.js'
 import { getProjectDir } from '../utils/sessionStoragePortable.js'
+import { AcpDaemonRegistry } from './acpRegistry.js'
 import {
   connectShared,
   defaultSharedAddress,
@@ -435,9 +436,31 @@ async function handle(
 
 export async function startSharedServer(address: string): Promise<Server> {
   await mkdirFor(address)
+  // Cheap: the registry module has no runtime imports; the ACP agent module
+  // graph loads lazily on the first session request, so a legacy-only daemon
+  // never pays for it.
+  const acpRegistry = new AcpDaemonRegistry()
   const server = createServer(socket => {
-    attachNdjsonFramer<SharedRequest>(socket, request => {
-      void handle(request, socket)
+    // A peer that vanishes mid-write (killed client, crashed terminal)
+    // raises EPIPE as an 'error' event; without a listener that error is
+    // fatal to the whole daemon. 'close' always follows and runs the
+    // detach cleanup, so the handler only needs to swallow the event.
+    socket.on('error', () => undefined)
+    attachNdjsonFramer<SharedRequest | { jsonrpc: string }>(socket, request => {
+      // ACP clients speak standard JSON-RPC; the legacy protocol uses `op`.
+      // Both share this socket during the migration window (AC-14).
+      if (
+        request &&
+        typeof request === 'object' &&
+        (request as { jsonrpc?: string }).jsonrpc === '2.0'
+      ) {
+        acpRegistry.handleSocketMessage(
+          socket,
+          request as unknown as Record<string, unknown>,
+        )
+        return
+      }
+      void handle(request as SharedRequest, socket)
         .then(event => {
           if (event) writeEvent(socket, event)
         })
@@ -448,6 +471,7 @@ export async function startSharedServer(address: string): Promise<Server> {
         })
     })
     socket.on('close', () => {
+      acpRegistry.detachSocket(socket)
       for (const [connectionId, connection] of connections) {
         if (connection.socket !== socket) continue
         connections.delete(connectionId)
