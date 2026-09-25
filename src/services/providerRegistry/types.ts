@@ -30,6 +30,14 @@ export type ProviderKind = z.infer<typeof ProviderKindSchema>
  * - defaultModel: model string passed as OPENAI_MODEL
  * - compatRule: selects CompatProfile from providerCompatMatrix
  */
+export const ProviderModelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).optional(),
+  contextWindow: z.number().int().positive().optional(),
+})
+
+export type ProviderModel = z.infer<typeof ProviderModelSchema>
+
 export const ProviderConfigSchema = z.object({
   id: z
     .string()
@@ -40,6 +48,7 @@ export const ProviderConfigSchema = z.object({
   apiKeyEnv: z.string().min(1),
   defaultModel: z.string().min(1),
   compatRule: CompatRuleSchema,
+  models: z.array(ProviderModelSchema).optional(),
 })
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>

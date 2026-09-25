@@ -1,20 +1,15 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test'
-import { mkdtempSync, writeFileSync, rmSync } from 'fs'
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { logMock } from '../../../../tests/mocks/log.js'
+import { _invalidateProviderCache } from '../loader.js'
 
 // Must mock log before any import that transitively loads log.ts
 mock.module('src/utils/log.ts', logMock)
 
 // bun:bundle must be mocked before imports that use feature()
 mock.module('bun:bundle', () => ({ feature: () => false }))
-
-// settings.js must be mocked to cut bootstrap chain
-mock.module('src/utils/settings/settings.js', () => ({
-  getSettings_DEPRECATED: () => ({}),
-  updateSettingsForSource: () => {},
-}))
 
 let tmpDir: string
 
@@ -23,11 +18,10 @@ beforeEach(() => {
   process.env['CLAUDE_CONFIG_DIR'] = tmpDir
 })
 
-afterEach(async () => {
+afterEach(() => {
   delete process.env['CLAUDE_CONFIG_DIR']
   rmSync(tmpDir, { recursive: true, force: true })
   // J1 fix: invalidate the per-process cache between tests so each test starts fresh
-  const { _invalidateProviderCache } = await import('../loader.js')
   _invalidateProviderCache()
 })
 
@@ -129,5 +123,38 @@ describe('loadProviders', () => {
     const deepseek = findProvider('deepseek', DEFAULT_PROVIDERS)
     expect(deepseek?.baseUrl).toBe('https://api.deepseek.com/v1')
     expect(deepseek?.compatRule).toBe('deepseek')
+  })
+})
+
+describe('saveProviders', () => {
+  test('keeps a default provider override that carries models', async () => {
+    const { DEFAULT_PROVIDERS, saveProviders, loadProviders } = await import(
+      '../loader.js'
+    )
+    const cerebras = DEFAULT_PROVIDERS.find(p => p.id === 'cerebras')!
+    saveProviders([
+      {
+        ...cerebras,
+        baseUrl: 'https://my-cerebras.example.com/v1',
+        models: [{ id: 'llama-3.3-70b', contextWindow: 128000 }],
+      },
+    ])
+    _invalidateProviderCache()
+    const reloaded = loadProviders().find(p => p.id === 'cerebras')
+    expect(reloaded?.baseUrl).toBe('https://my-cerebras.example.com/v1')
+    expect(reloaded?.models).toEqual([
+      { id: 'llama-3.3-70b', contextWindow: 128000 },
+    ])
+  })
+
+  test('does not rewrite a default that only differs in key order', async () => {
+    const { DEFAULT_PROVIDERS, saveProviders } = await import('../loader.js')
+    const groq = DEFAULT_PROVIDERS.find(p => p.id === 'groq')!
+    const reordered = Object.fromEntries(
+      Object.entries(groq).reverse(),
+    ) as typeof groq
+    saveProviders([reordered])
+    const raw = readFileSync(join(tmpDir, 'providers.json'), 'utf-8')
+    expect(raw).not.toContain('groq')
   })
 })

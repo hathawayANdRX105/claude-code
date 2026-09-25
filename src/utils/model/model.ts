@@ -37,6 +37,7 @@ import {
   isChatGPTAuthMode,
   resolveChatGPTCodexModelForTier,
 } from './chatgptModels.js'
+import { providerContextWindow } from '../../services/providerRegistry/activeModels.js'
 
 export type ModelShortName = string
 export type ModelName = string
@@ -520,7 +521,7 @@ export function getEffectiveContextTokens(model: string): number {
   } catch {
     // settings not ready during early bootstrap — fall through
   }
-  return 1_000_000
+  return providerContextWindow(model) ?? 1_000_000
 }
 
 // Display-layer counterpart of getContextWindowForModel's precedence for

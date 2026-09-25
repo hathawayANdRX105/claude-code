@@ -64,7 +64,8 @@
           "docs/extensibility/mcp-protocol",
           "docs/extensibility/hooks",
           "docs/extensibility/skills",
-          "docs/extensibility/custom-agents"
+          "docs/extensibility/custom-agents",
+          "docs/extensibility/custom-providers"
         ]
       },
       {

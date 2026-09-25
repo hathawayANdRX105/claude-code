@@ -169,21 +169,6 @@ export function findProvider(
 }
 
 /**
- * Deep-equal comparison for ProviderConfig objects, key-order independent.
- * E4 fix: replaces JSON.stringify comparison which is key-order sensitive.
- */
-function providerConfigEqual(a: ProviderConfig, b: ProviderConfig): boolean {
-  const keysA = Object.keys(a).sort()
-  const keysB = Object.keys(b).sort()
-  if (keysA.length !== keysB.length) return false
-  for (const k of keysA) {
-    if (a[k as keyof ProviderConfig] !== b[k as keyof ProviderConfig])
-      return false
-  }
-  return true
-}
-
-/**
  * Write additional providers to ~/.claude/providers.json.
  *
  * Only writes providers that are NOT already in DEFAULT_PROVIDERS (or the
@@ -195,6 +180,19 @@ function providerConfigEqual(a: ProviderConfig, b: ProviderConfig): boolean {
  *
  * Returns the final merged list that was written.
  */
+
+// JSON.stringify with object keys sorted at every level, so provider
+// equality survives key order while still comparing nested models by value.
+function stableStringify(value: unknown): string {
+  return JSON.stringify(value, (_key, val) =>
+    val && typeof val === 'object' && !Array.isArray(val)
+      ? Object.fromEntries(
+          Object.entries(val).sort(([a], [b]) => a.localeCompare(b)),
+        )
+      : val,
+  )
+}
+
 export function saveProviders(providers: ProviderConfig[]): ProviderConfig[] {
   const filePath = getProvidersFilePath()
 
@@ -214,19 +212,24 @@ export function saveProviders(providers: ProviderConfig[]): ProviderConfig[] {
     if (!isDefault) {
       toWrite.push(p)
     } else {
-      // E4: If user overrode a default, persist the override (key-order-independent compare)
+      // E4: If user overrode a default, persist the override. Sorted-key
+      // comparison so a differently ordered but equal override is not written
+      // back, and so nested `models` entries compare by value.
       const defaultEntry = DEFAULT_PROVIDERS.find(d => d.id === id)
-      if (defaultEntry && !providerConfigEqual(defaultEntry, p)) {
+      if (
+        defaultEntry &&
+        stableStringify(defaultEntry) !== stableStringify(p)
+      ) {
         toWrite.push(p)
       }
     }
   }
 
-  // C3: atomic write — tmp file + rename prevents lost-update on concurrent save
   const tmpPath = join(
     tmpdir(),
     `.providers-${randomBytes(8).toString('hex')}.tmp`,
   )
+  // C3: atomic write — tmp file + rename prevents lost-update on concurrent save
   try {
     writeFileSync(tmpPath, JSON.stringify(toWrite, null, 2), 'utf-8')
     renameSync(tmpPath, filePath)

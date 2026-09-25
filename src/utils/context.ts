@@ -10,6 +10,7 @@ import {
 } from './model/chatgptModels.js'
 import { getModelCapability } from './model/modelCapabilities.js'
 import { getInitialSettings } from './settings/settings.js'
+import { providerContextWindow } from '../services/providerRegistry/activeModels.js'
 
 // Model context window size (200k tokens for all models right now)
 export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
@@ -93,6 +94,12 @@ export function getContextWindowForModel(
       return override
     }
   }
+
+  // Provider-declared window (providers.json models[].contextWindow) sits
+  // below the settings override and the explicit ant cap, above built-in
+  // detection.
+  const fromProvider = providerContextWindow(model)
+  if (fromProvider) return fromProvider
 
   // [1m] suffix — explicit client-side opt-in, respected over all detection
   if (has1mContext(model)) {
