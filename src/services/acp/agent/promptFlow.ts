@@ -33,6 +33,39 @@ import {
   syncSessionConfigState,
 } from './internalAccessors.js'
 
+// ── Process-wide turn serialization ─────────────────────────────
+//
+// Transcript recording reads global session state (bootstrap/state.ts
+// switchSession / getSessionId) at asynchronous points DURING a turn
+// (recordTranscript is fire-and-forget on streamed deltas). Two concurrent
+// turns in one process interleave those reads and write one session's
+// messages into the other session's .jsonl — observed live in the shared
+// daemon (26 lines of session B landed in session A's transcript). Until
+// recording is keyed per session, engine turns serialize process-wide.
+//
+// The uncontended fast path is synchronous: a lone prompt reaches the engine
+// without an extra microtask hop, preserving pre-existing prompt timing.
+// Only a genuinely concurrent second turn parks in the waiter queue.
+let turnHeld = false
+const turnWaiters: Array<() => void> = []
+
+function tryAcquireTurn(): boolean {
+  if (turnHeld) return false
+  turnHeld = true
+  return true
+}
+
+function waitForTurn(): Promise<void> {
+  return new Promise(resolve => turnWaiters.push(resolve))
+}
+
+function releaseTurnLock(): void {
+  // Hand off directly: the lock stays held so no third party slips in.
+  const next = turnWaiters.shift()
+  if (next) next()
+  else turnHeld = false
+}
+
 // ── prompt ───────────────────────────────────────────────────────
 
 async function prompt(
@@ -86,6 +119,9 @@ async function prompt(
   // must not clear the cancellation state for the active prompt.
   session.cancelled = false
   session.promptRunning = true
+
+  // Uncontended: no await, preserving the prompt's synchronous start timing.
+  if (!tryAcquireTurn()) await waitForTurn()
 
   try {
     // Reset the query engine's abort controller for a fresh query.
@@ -184,6 +220,9 @@ async function prompt(
 
     throw err
   } finally {
+    // Free the process-wide turn lock before waking the next queued prompt,
+    // so the follow-up turn of this or another session can start.
+    releaseTurnLock()
     // Resolve next pending prompt if any
     const nextPrompt = popNextPendingPrompt(session)
     if (nextPrompt) {
