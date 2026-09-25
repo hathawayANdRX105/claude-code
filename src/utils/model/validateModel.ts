@@ -10,7 +10,7 @@ import {
   AuthenticationError,
 } from '@anthropic-ai/sdk'
 import { getModelStrings } from './modelStrings.js'
-import { activeProviderModels } from '../../services/providerRegistry/activeModels.js'
+import { isProviderModelValue } from '../../services/providerRegistry/routing.js'
 
 // Cache valid models to avoid repeated API calls
 const validModelCache = new Map<string, boolean>()
@@ -48,7 +48,7 @@ export async function validateModel(
     : [process.env.ANTHROPIC_CUSTOM_MODEL_OPTION]
   if (
     listed.includes(normalizedModel) ||
-    activeProviderModels()?.some(model => model.id === normalizedModel)
+    isProviderModelValue(normalizedModel)
   ) {
     return { valid: true }
   }
