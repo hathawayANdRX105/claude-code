@@ -41,7 +41,7 @@ import {
   CHATGPT_CODEX_MODEL_OPTIONS,
   isChatGPTAuthMode,
 } from './chatgptModels.js'
-import { activeProviderModels } from '../../services/providerRegistry/activeModels.js'
+import { loadProviders } from '../../services/providerRegistry/loader.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -574,20 +574,26 @@ function customModelIds(): string[] {
   return one ? [one] : []
 }
 
-export function getModelOptions(fastMode = false): ModelOption[] {
-  const providerModels = activeProviderModels()
-  if (providerModels) {
-    return filterModelOptionsByAllowlist(
-      providerModels.map(model => ({
-        value: model.id,
+function providerModelOptions(): ModelOption[] {
+  const options: ModelOption[] = []
+  for (const provider of loadProviders()) {
+    const models = provider.models
+    if (!models || models.length === 0) continue
+    for (const model of models) {
+      options.push({
+        value: `${provider.id}/${model.id}`,
         label: model.name ?? model.id,
         description: model.contextWindow
-          ? `Custom model (${formatCtxTokens(model.contextWindow)} context)`
-          : `Custom model (${model.id})`,
-      })),
-    )
+          ? `${provider.id} · ${formatCtxTokens(model.contextWindow)} context`
+          : provider.id,
+      })
+    }
   }
+  return options
+}
 
+// Built-in and custom model options, before provider models are appended.
+function buildCoreModelOptions(fastMode = false): ModelOption[] {
   const options = getModelOptionsBase(fastMode)
 
   // ANTHROPIC_CUSTOM_MODEL_OPTIONS is comma-separated. The singular
@@ -652,6 +658,16 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     }
     return filterModelOptionsByAllowlist(options)
   }
+}
+
+export function getModelOptions(fastMode = false): ModelOption[] {
+  const options = buildCoreModelOptions(fastMode)
+  for (const opt of providerModelOptions()) {
+    if (!options.some(existing => existing.value === opt.value)) {
+      options.push(opt)
+    }
+  }
+  return filterModelOptionsByAllowlist(options)
 }
 
 /**

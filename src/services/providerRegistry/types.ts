@@ -49,6 +49,7 @@ export const ProviderConfigSchema = z.object({
   defaultModel: z.string().min(1),
   compatRule: CompatRuleSchema,
   models: z.array(ProviderModelSchema).optional(),
+  fastModel: z.string().min(1).optional(),
 })
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>

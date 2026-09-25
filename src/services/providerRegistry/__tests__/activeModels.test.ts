@@ -4,7 +4,6 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { _invalidateProviderCache } from '../loader.js'
 import { activeProviderModels } from '../activeModels.js'
-import { getModelOptions } from '../../../utils/model/modelOptions.js'
 
 let tmpDir: string | undefined
 const saved = {
@@ -24,8 +23,8 @@ afterEach(() => {
   _invalidateProviderCache()
 })
 
-describe('provider model list', () => {
-  test('a matching provider models list replaces the built-in picker', () => {
+describe('active provider models (endpoint match, removed in spec 0003 cutover)', () => {
+  test('a matching provider exposes its models list', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'provider-models-'))
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     process.env.ANTHROPIC_BASE_URL = 'http://localhost:3100'
@@ -53,9 +52,5 @@ describe('provider model list', () => {
       'grok-4.7',
       'kimi-k3',
     ])
-    const options = getModelOptions()
-    expect(options.map(option => option.value)).toEqual(['grok-4.7', 'kimi-k3'])
-    expect(options.map(option => option.label)).toEqual(['grok-4.7', 'Kimi'])
-    expect(options.some(option => option.value === 'opus')).toBe(false)
   })
 })
