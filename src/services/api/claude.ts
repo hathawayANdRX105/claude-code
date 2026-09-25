@@ -1858,6 +1858,7 @@ async function* queryModel(
   let partialMessage: BetaMessage | undefined
   const contentBlocks: (BetaContentBlock | ConnectorTextBlock)[] = []
   const textDeltas = new Map<number, string[]>()
+  const stoppedBlocks = new Set<number>()
   let usage: NonNullableUsage = EMPTY_USAGE
   let costUSD = 0
   let stopReason: BetaStopReason | null = null
@@ -2294,6 +2295,7 @@ async function* queryModel(
               ;(contentBlock as { text: string }).text = deltas.join('')
               textDeltas.delete(part.index)
             }
+            stoppedBlocks.add(part.index)
             const m: AssistantMessage = {
               message: {
                 ...partialMessage,
@@ -2409,6 +2411,46 @@ async function* queryModel(
           type: 'stream_event',
           event: part,
           ...(part.type === 'message_start' ? { ttftMs } : undefined),
+        }
+      }
+
+      // Some OpenAI-compatible proxies close the SSE stream after the last
+      // text deltas and never send content_block_stop. Commit those blocks
+      // from the deltas already accumulated, otherwise the reply flashes and
+      // the saved message keeps only the earlier thinking block.
+      if (partialMessage && !streamIdleAborted) {
+        for (let index = 0; index < contentBlocks.length; index++) {
+          if (stoppedBlocks.has(index)) continue
+          const contentBlock = contentBlocks[index]
+          if (!contentBlock) continue
+          const deltas = textDeltas.get(index)
+          if (deltas && contentBlock.type === 'text') {
+            contentBlock.text = deltas.join('')
+            textDeltas.delete(index)
+          }
+          const recovered: AssistantMessage = {
+            message: {
+              ...partialMessage,
+              usage: partialMessage.usage ?? { ...EMPTY_USAGE },
+              content: normalizeContentFromAPI(
+                [contentBlock] as BetaContentBlock[],
+                tools,
+                options.agentId,
+              ) as MessageContent,
+            },
+            requestId: streamRequestId ?? undefined,
+            type: 'assistant',
+            uuid: randomUUID(),
+            timestamp: new Date().toISOString(),
+            ...(advisorModel && { advisorModel }),
+          }
+          newMessages.push(recovered)
+          stoppedBlocks.add(index)
+          yield recovered
+          yield {
+            type: 'stream_event',
+            event: { type: 'content_block_stop', index },
+          }
         }
       }
       // Clear the idle timeout watchdog now that the stream loop has exited
