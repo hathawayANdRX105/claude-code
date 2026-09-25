@@ -355,6 +355,53 @@ describe('AcpDaemonRegistry', () => {
     expect(failure?.result).toBeUndefined()
   })
 
+  test('a permission arriving after the owner detaches fails closed (AC-11)', async () => {
+    const transport = new FakeTransport()
+    const registry = new AcpDaemonRegistry({
+      transportFactory: () => transport,
+    })
+    const a = new FakeClient()
+    const b = new FakeClient()
+    await newSession(registry, a, 1)
+    registry.handleSocketMessage(
+      b,
+      request(1, 'session/resume', { sessionId: 'sess-1', cwd: '/tmp/demo' }),
+    )
+    registry.handleSocketMessage(
+      a,
+      request(2, 'session/prompt', {
+        sessionId: 'sess-1',
+        prompt: [{ type: 'text', text: 'run' }],
+      }),
+    )
+    await flush(registry)
+
+    // The owner leaves while the turn is in flight; the turn keeps running.
+    registry.detachSocket(a)
+    await flush(registry)
+
+    // A permission that arrives after the owner is gone must fail closed,
+    // not hang, and not be re-routed to the read-only client B.
+    transport.emit(
+      request(99, 'session/request_permission', {
+        sessionId: 'sess-1',
+        toolCall: { toolCallId: 'tc-late' },
+        options: [],
+      }),
+    )
+    await flush(registry)
+
+    const late = transport.sent.find(m => m.id === 99) as Json | undefined
+    expect(late).toBeDefined()
+    expect(late?.error).toBeDefined()
+    expect(late?.result).toBeUndefined()
+    expect(
+      b.lines.some(
+        l => l.method === 'session/request_permission' && l.id === 99,
+      ),
+    ).toBe(false)
+  })
+
   test('during a turn only the owner may prompt, cancel, or change config (AC-13)', async () => {
     const transport = new FakeTransport()
     const registry = new AcpDaemonRegistry({

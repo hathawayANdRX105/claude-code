@@ -202,7 +202,10 @@ export class AcpDaemonRegistry {
     const isResponse = method === null && msg.id !== undefined
 
     if (isResponse) {
-      // Response to an agent -> client request; forward untouched.
+      // Response to an agent -> client request. Forward only when this client
+      // still owns the pending request; a late reply whose id no longer
+      // matches (target already detached) is dropped, so a reconnected client
+      // holding a recycled id cannot inject a stale allow (AC-11).
       if (this.pendingAgent.get(msg.id as JsonRpcId) === connId) {
         this.pendingAgent.delete(msg.id as JsonRpcId)
         this.sendToAgent(msg)
@@ -394,8 +397,13 @@ export class AcpDaemonRegistry {
     // (AC-11); outside a turn, fall back to the first attachment.
     const target =
       route?.turnOwner ?? route?.attachments.keys().next().value ?? null
-    if (target === null) {
-      // No client can answer: fail safe, never silently approve.
+    // targetClient is undefined when the computed target has since detached
+    // (a stale turn owner): the running turn is kept (AC-8) but no live
+    // client can answer, so fail closed instead of leaving the tool hung
+    // (AC-11).
+    const targetClient = target ? this.clients.get(target) : undefined
+    if (target === null || targetClient === undefined) {
+      // No live client can answer: fail safe, never silently approve.
       this.sendToAgent({
         jsonrpc: '2.0',
         id: msg.id as JsonRpcId,
@@ -404,8 +412,7 @@ export class AcpDaemonRegistry {
       return
     }
     this.pendingAgent.set(msg.id as JsonRpcId, target)
-    const client = this.clients.get(target)
-    if (client) sendJson(client, msg)
+    sendJson(targetClient, msg)
     if (method === 'session/request_permission' && route) {
       for (const connId of route.attachments.keys()) {
         if (connId === target) continue
