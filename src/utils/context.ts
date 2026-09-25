@@ -81,9 +81,6 @@ export function getContextWindowForModel(
     // settings not ready during early bootstrap — fall through to detection
   }
 
-  const fromProvider = providerContextWindow(model)
-  if (fromProvider) return fromProvider
-
   // Allow override via environment variable (ant-only)
   // This takes precedence over all other context window resolution, including 1M detection,
   // so users can cap the effective context window for local decisions (auto-compact, etc.)
@@ -97,6 +94,12 @@ export function getContextWindowForModel(
       return override
     }
   }
+
+  // Provider-declared window (providers.json models[].contextWindow) sits
+  // below the settings override and the explicit ant cap, above built-in
+  // detection.
+  const fromProvider = providerContextWindow(model)
+  if (fromProvider) return fromProvider
 
   // [1m] suffix — explicit client-side opt-in, respected over all detection
   if (has1mContext(model)) {
