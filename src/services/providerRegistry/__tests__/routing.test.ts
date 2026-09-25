@@ -4,6 +4,7 @@ import {
   parseProviderModel,
   resolveProviderForModel,
   routeModel,
+  providerContextWindow,
 } from '../routing.js'
 import type { ProviderConfig } from '../types.js'
 
@@ -84,6 +85,7 @@ describe('routeModel', () => {
       kind: 'openai-compat',
       baseUrl: 'http://localhost:3100/v1',
       apiKey: 'wt-key',
+      apiKeyEnv: 'WILDTOKEN_API_KEY',
       bareModel: 'grok-4.7',
       providerId: 'wildtoken',
     })
@@ -92,5 +94,32 @@ describe('routeModel', () => {
 
   test('returns null for a bare model', () => {
     expect(routeModel('grok-4.7', [wildtoken])).toBeNull()
+  })
+})
+
+describe('providerContextWindow', () => {
+  const wildtoken = {
+    id: 'wildtoken',
+    kind: 'openai-compat',
+    baseUrl: 'http://localhost:3100/v1',
+    apiKeyEnv: 'WILDTOKEN_API_KEY',
+    defaultModel: 'grok-4.7',
+    compatRule: 'permissive',
+    models: [
+      { id: 'grok-4.7', contextWindow: 500000 },
+      { id: 'kimi-k3' },
+    ],
+  } as unknown as ProviderConfig
+
+  test('reads the window for a prefixed model by its bare id', () => {
+    expect(providerContextWindow('wildtoken/grok-4.7', [wildtoken])).toBe(500000)
+  })
+
+  test('a bare model has no provider window', () => {
+    expect(providerContextWindow('grok-4.7', [wildtoken])).toBeUndefined()
+  })
+
+  test('a prefixed model with no window entry is undefined', () => {
+    expect(providerContextWindow('wildtoken/kimi-k3', [wildtoken])).toBeUndefined()
   })
 })

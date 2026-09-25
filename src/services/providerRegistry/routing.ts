@@ -42,11 +42,11 @@ export function bareModelId(value: string): string {
 export function isProviderModelValue(value: string): boolean {
   return resolveProviderForModel(value) !== undefined
 }
-
 export type RoutedEndpoint = {
   kind: ProviderConfig['kind']
   baseUrl: string
   apiKey: string | undefined
+  apiKeyEnv: string
   bareModel: string
   providerId: string
 }
@@ -64,7 +64,21 @@ export function routeModel(
     kind: provider.kind,
     baseUrl: provider.baseUrl,
     apiKey: process.env[provider.apiKeyEnv],
+    apiKeyEnv: provider.apiKeyEnv,
     bareModel: bareModelId(value),
     providerId: provider.id,
   }
+}
+
+// The context window for a model value, read from the provider named by its
+// prefix and the bare model id. Undefined for a bare or unknown model.
+export function providerContextWindow(
+  value: string,
+  providers?: ProviderConfig[],
+): number | undefined {
+  const ref = parseProviderModel(value)
+  if (!ref) return undefined
+  const provider = findProvider(ref.providerId, providers ?? loadProviders())
+  const window = provider?.models?.find(m => m.id === ref.model)?.contextWindow
+  return window && window > 0 ? window : undefined
 }

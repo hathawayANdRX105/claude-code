@@ -228,10 +228,18 @@ export async function* queryModelOpenAI(
   StreamEvent | AssistantMessage | SystemAPIErrorMessage,
   void
 > {
+  // Spec 0003 AC-6: a provider whose key env var is unset fails with a
+  // provider-named error before any request is made.
+  const routed = routeModel(options.model)
+  if (routed && routed.apiKey === undefined) {
+    throw new Error(
+      `Provider "${routed.providerId}" has no API key. Set the ` +
+      `${routed.apiKeyEnv} environment variable.`,
+    )
+  }
   try {
     // 1. Resolve model name. A provider-prefixed model (spec 0003) routes to
     // that provider's endpoint and sends the bare model id on the wire.
-    const routed = routeModel(options.model)
     const openaiModel = resolveOpenAIModel(bareModelId(options.model))
 
     // 2. Normalize messages using shared preprocessing

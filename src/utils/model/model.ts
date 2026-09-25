@@ -37,7 +37,7 @@ import {
   isChatGPTAuthMode,
   resolveChatGPTCodexModelForTier,
 } from './chatgptModels.js'
-import { providerContextWindow } from '../../services/providerRegistry/activeModels.js'
+import { providerContextWindow } from '../../services/providerRegistry/routing.js'
 
 export type ModelShortName = string
 export type ModelName = string
