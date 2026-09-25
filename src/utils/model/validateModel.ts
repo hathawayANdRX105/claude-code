@@ -10,6 +10,7 @@ import {
   AuthenticationError,
 } from '@anthropic-ai/sdk'
 import { getModelStrings } from './modelStrings.js'
+import { activeProviderModels } from '../../services/providerRegistry/activeModels.js'
 
 // Cache valid models to avoid repeated API calls
 const validModelCache = new Map<string, boolean>()
@@ -41,8 +42,14 @@ export async function validateModel(
     return { valid: true }
   }
 
-  // Check if it matches ANTHROPIC_CUSTOM_MODEL_OPTION (pre-validated by the user)
-  if (normalizedModel === process.env.ANTHROPIC_CUSTOM_MODEL_OPTION) {
+  // Listed custom models are pre-validated (env list or provider models[]).
+  const listed = process.env.ANTHROPIC_CUSTOM_MODEL_OPTIONS
+    ? process.env.ANTHROPIC_CUSTOM_MODEL_OPTIONS.split(',').map(s => s.trim())
+    : [process.env.ANTHROPIC_CUSTOM_MODEL_OPTION]
+  if (
+    listed.includes(normalizedModel) ||
+    activeProviderModels()?.some(model => model.id === normalizedModel)
+  ) {
     return { valid: true }
   }
 

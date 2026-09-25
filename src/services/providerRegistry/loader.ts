@@ -169,21 +169,6 @@ export function findProvider(
 }
 
 /**
- * Deep-equal comparison for ProviderConfig objects, key-order independent.
- * E4 fix: replaces JSON.stringify comparison which is key-order sensitive.
- */
-function providerConfigEqual(a: ProviderConfig, b: ProviderConfig): boolean {
-  const keysA = Object.keys(a).sort()
-  const keysB = Object.keys(b).sort()
-  if (keysA.length !== keysB.length) return false
-  for (const k of keysA) {
-    if (a[k as keyof ProviderConfig] !== b[k as keyof ProviderConfig])
-      return false
-  }
-  return true
-}
-
-/**
  * Write additional providers to ~/.claude/providers.json.
  *
  * Only writes providers that are NOT already in DEFAULT_PROVIDERS (or the
@@ -216,17 +201,17 @@ export function saveProviders(providers: ProviderConfig[]): ProviderConfig[] {
     } else {
       // E4: If user overrode a default, persist the override (key-order-independent compare)
       const defaultEntry = DEFAULT_PROVIDERS.find(d => d.id === id)
-      if (defaultEntry && !providerConfigEqual(defaultEntry, p)) {
+      if (defaultEntry && JSON.stringify(defaultEntry) !== JSON.stringify(p)) {
         toWrite.push(p)
       }
     }
   }
 
-  // C3: atomic write — tmp file + rename prevents lost-update on concurrent save
   const tmpPath = join(
     tmpdir(),
     `.providers-${randomBytes(8).toString('hex')}.tmp`,
   )
+  // C3: atomic write — tmp file + rename prevents lost-update on concurrent save
   try {
     writeFileSync(tmpPath, JSON.stringify(toWrite, null, 2), 'utf-8')
     renameSync(tmpPath, filePath)

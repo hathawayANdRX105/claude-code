@@ -10,6 +10,7 @@ import {
 } from './model/chatgptModels.js'
 import { getModelCapability } from './model/modelCapabilities.js'
 import { getInitialSettings } from './settings/settings.js'
+import { providerContextWindow } from '../services/providerRegistry/activeModels.js'
 
 // Model context window size (200k tokens for all models right now)
 export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
@@ -79,6 +80,9 @@ export function getContextWindowForModel(
   } catch {
     // settings not ready during early bootstrap — fall through to detection
   }
+
+  const fromProvider = providerContextWindow(model)
+  if (fromProvider) return fromProvider
 
   // Allow override via environment variable (ant-only)
   // This takes precedence over all other context window resolution, including 1M detection,

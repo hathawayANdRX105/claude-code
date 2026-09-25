@@ -41,6 +41,7 @@ import {
   CHATGPT_CODEX_MODEL_OPTIONS,
   isChatGPTAuthMode,
 } from './chatgptModels.js'
+import { activeProviderModels } from '../../services/providerRegistry/activeModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -561,21 +562,47 @@ function getKnownModelOption(model: string): ModelOption | null {
   }
 }
 
+function customModelIds(): string[] {
+  const raw = process.env.ANTHROPIC_CUSTOM_MODEL_OPTIONS
+  if (raw) {
+    return raw
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+  }
+  const one = process.env.ANTHROPIC_CUSTOM_MODEL_OPTION?.trim()
+  return one ? [one] : []
+}
+
 export function getModelOptions(fastMode = false): ModelOption[] {
+  const providerModels = activeProviderModels()
+  if (providerModels) {
+    return filterModelOptionsByAllowlist(
+      providerModels.map(model => ({
+        value: model.id,
+        label: model.name ?? model.id,
+        description: model.contextWindow
+          ? `Custom model (${formatCtxTokens(model.contextWindow)} context)`
+          : `Custom model (${model.id})`,
+      })),
+    )
+  }
+
   const options = getModelOptionsBase(fastMode)
 
-  // Add the custom model from the ANTHROPIC_CUSTOM_MODEL_OPTION env var
-  const envCustomModel = process.env.ANTHROPIC_CUSTOM_MODEL_OPTION
-  if (
-    envCustomModel &&
-    !options.some(existing => existing.value === envCustomModel)
-  ) {
+  // ANTHROPIC_CUSTOM_MODEL_OPTIONS is comma-separated. The singular
+  // ANTHROPIC_CUSTOM_MODEL_OPTION stays for the one-model case.
+  const ids = customModelIds()
+  for (const id of ids) {
+    if (options.some(existing => existing.value === id)) continue
+    const sole = ids.length === 1
     options.push({
-      value: envCustomModel,
-      label: process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME ?? envCustomModel,
-      description:
-        process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION ??
-        `Custom model (${envCustomModel})`,
+      value: id,
+      label: sole ? (process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME ?? id) : id,
+      description: sole
+        ? (process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION ??
+          `Custom model (${id})`)
+        : `Custom model (${id})`,
     })
   }
 
