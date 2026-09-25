@@ -1,0 +1,113 @@
+# Custom Providers and Model Lists
+
+`~/.claude/providers.json` declares OpenAI-compatible endpoints. When an entry
+also lists `models`, that list replaces the built-in Opus/Sonnet/Haiku rows in
+`/model` — no Claude models appear.
+
+## Minimal example
+
+```json
+[
+  {
+    "id": "wildtoken",
+    "kind": "openai-compat",
+    "baseUrl": "http://localhost:3100/v1",
+    "apiKeyEnv": "WILDTOKEN_API_KEY",
+    "defaultModel": "grok-4.7",
+    "compatRule": "permissive",
+    "models": [
+      { "id": "grok-4.7", "contextWindow": 500000 },
+      { "id": "kimi-k3", "name": "Kimi", "contextWindow": 500000 },
+      { "id": "gpt-6-astra", "contextWindow": 370000 }
+    ]
+  }
+]
+```
+
+`/model` then shows exactly `grok-4.7`, `Kimi`, `gpt-6-astra`.
+
+## Provider fields
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `id` | yes | kebab-case id, used by `/providers use <id>` |
+| `kind` | yes | only `openai-compat` today |
+| `baseUrl` | yes | full base URL, including `/v1` when the endpoint needs it |
+| `apiKeyEnv` | yes | name of the env var holding the key — never the key itself |
+| `defaultModel` | yes | model id used when the provider is activated |
+| `compatRule` | yes | `permissive`, `strict-openai`, `cerebras`, `groq`, or `deepseek` |
+| `models` | no | model ids this provider serves; see below |
+
+## Model fields
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `id` | yes | exact model id sent to the endpoint |
+| `name` | no | label shown in `/model`; defaults to `id` |
+| `contextWindow` | no | real context window in tokens; defaults to 200k |
+
+## How a provider is matched to the running session
+
+A provider's `models` list takes effect when its `baseUrl` matches the session's
+`OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`. Matching ignores a trailing slash and
+one trailing `/v1`, so all three of these match the entry above:
+
+```
+http://localhost:3100
+http://localhost:3100/v1
+http://localhost:3100/v1/
+```
+
+If the URL does not match, or the matched entry has no `models`, the built-in
+list stays. Built-in providers (cerebras, groq, qwen, deepseek) are always
+available; a user entry with the same `id` replaces the built-in one.
+
+## Where the model list applies
+
+- `/model` shows only the listed ids, in file order.
+- The context window for auto-compact and token accounting comes from
+  `contextWindow`.
+- Selecting a listed model skips the live model-probing call, so no request is
+  sent to validate it.
+
+## Precedence for context window
+
+Highest wins:
+
+1. `contextWindowOverrides` in `~/.claude/settings.json` (per model id)
+2. `CLAUDE_CODE_MAX_CONTEXT_TOKENS` (ant builds only)
+3. `contextWindow` from `providers.json`
+4. Built-in detection, then the 200k default
+
+`~/.claude/settings.json` therefore still overrides an individual model when
+both files declare a window for it.
+
+The `[1m]` suffix used by built-in aliases is checked after the provider value.
+It only matters for aliases (`sonnet[1m]`, `opus[1m]`), which do not appear when
+a provider list replaces the built-in rows.
+
+## Activating a provider
+
+`/providers use <id>` prints shell exports; it does not change the running
+process. Put the same values in `settings.json` `env` to make them apply on
+startup:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://localhost:3100",
+    "ANTHROPIC_CUSTOM_MODEL_OPTIONS": "grok-4.7,kimi-k3,gpt-6-astra"
+  }
+}
+```
+
+`ANTHROPIC_CUSTOM_MODEL_OPTIONS` is a separate mechanism: it appends entries to
+the built-in list. Prefer `providers.json` `models` when you want a list that
+replaces the built-in rows.
+
+## Model switch precedence
+
+`/model` persists to the top-level `model` field, but the session starts with
+the `ANTHROPIC_MODEL` env var when it is set — that one wins. Remove it from
+`settings.json` `env` if you want the saved `model` field to take effect.
+
