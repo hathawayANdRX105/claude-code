@@ -1,8 +1,9 @@
 # Custom Providers and Model Lists
 
-`~/.claude/providers.json` declares OpenAI-compatible endpoints. When an entry
-also lists `models`, that list replaces the built-in Opus/Sonnet/Haiku rows in
-`/model` — no Claude models appear.
+`~/.claude/providers.json` declares third-party model endpoints in either wire
+format: OpenAI Chat Completions (`openai-compat`) or the Anthropic Messages API
+(`anthropic`). When an entry also lists `models`, that list is shown in `/model`
+grouped under the provider.
 
 ## Minimal example
 
@@ -31,11 +32,11 @@ also lists `models`, that list replaces the built-in Opus/Sonnet/Haiku rows in
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `id` | yes | kebab-case id, used by `/providers use <id>` |
-| `kind` | yes | only `openai-compat` today |
+| `kind` | yes | wire protocol: `openai-compat` (OpenAI Chat Completions) or `anthropic` (Anthropic Messages API, e.g. a relay/proxy serving `/v1/messages`) |
 | `baseUrl` | yes | full base URL, including `/v1` when the endpoint needs it |
 | `apiKeyEnv` | yes | name of the env var holding the key — never the key itself |
 | `defaultModel` | yes | model id used when the provider is activated |
-| `compatRule` | yes | `permissive`, `strict-openai`, `cerebras`, `groq`, or `deepseek` |
+| `compatRule` | yes | `permissive`, `strict-openai`, `cerebras`, `groq`, or `deepseek`; ignored for `kind: "anthropic"`
 | `models` | no | model ids this provider serves; see below |
 
 ## Model fields
@@ -45,6 +46,38 @@ also lists `models`, that list replaces the built-in Opus/Sonnet/Haiku rows in
 | `id` | yes | exact model id sent to the endpoint |
 | `name` | no | label shown in `/model`; defaults to `id` |
 | `contextWindow` | no | real context window in tokens; defaults to 200k |
+
+## Anthropic wire providers (`kind: "anthropic"`)
+
+Use this for endpoints that speak the **Anthropic Messages API** — relays,
+proxies, or gateways that serve `/v1/messages` (including Claude models or
+models exposed in Anthropic wire format). Requests for a provider-prefixed
+model (`<id>/<model>`) of such a provider are sent over the native Anthropic
+path — same request shape as first-party Claude — with the provider's own
+`baseUrl` and API key. `compatRule` has no effect; the native wire needs no
+compat profile.
+
+```json
+[
+  {
+    "id": "claude-relay",
+    "kind": "anthropic",
+    "baseUrl": "https://relay.example.com",
+    "apiKeyEnv": "RELAY_API_KEY",
+    "defaultModel": "claude-sonnet-4-5",
+    "compatRule": "permissive",
+    "models": [
+      { "id": "claude-sonnet-4-5", "contextWindow": 200000 }
+    ]
+  }
+]
+```
+
+Activation (`/providers use claude-relay`) exports `ANTHROPIC_BASE_URL`,
+`ANTHROPIC_API_KEY`, and `ANTHROPIC_MODEL` instead of the `OPENAI_*` set,
+because the session's native (first-party) API path is what these providers
+route through. Provider-prefixed models route per request and work even when
+the global session is in OpenAI-compat mode.
 
 ## How a provider is matched to the running session
 

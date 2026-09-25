@@ -87,12 +87,19 @@ export async function getAnthropicClient({
   model,
   fetchOverride,
   source,
+  baseURL,
 }: {
   apiKey?: string
   maxRetries: number
   model?: string
   fetchOverride?: ClientOptions['fetch']
   source?: string
+  /**
+   * Provider-scoped endpoint (spec 0003 follow-up). When set, overrides the
+   * ANTHROPIC_BASE_URL env default so anthropic-kind providers route to
+   * their own /v1/messages endpoint.
+   */
+  baseURL?: string
 }): Promise<Anthropic> {
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
@@ -310,6 +317,8 @@ export async function getAnthropicClient({
     isEnvTruthy(process.env.USE_STAGING_OAUTH)
       ? { baseURL: getOauthConfig().BASE_API_URL }
       : {}),
+    // Provider-scoped endpoint wins over env/staging defaults (spec 0003 follow-up)
+    ...(baseURL && { baseURL }),
     ...ARGS,
     ...(isDebugToStdErr() && { logger: createStderrLogger() }),
   }

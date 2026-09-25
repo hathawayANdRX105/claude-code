@@ -843,6 +843,9 @@ export async function* executeNonStreamingRequest(
     model: string
     fetchOverride?: Options['fetchOverride']
     source: string
+    /** anthropic-kind provider routing (spec 0003 follow-up). */
+    apiKey?: string
+    baseURL?: string
   },
   retryOptions: {
     model: string
@@ -870,6 +873,8 @@ export async function* executeNonStreamingRequest(
         model: clientOptions.model,
         fetchOverride: clientOptions.fetchOverride,
         source: clientOptions.source,
+        apiKey: clientOptions.apiKey,
+        baseURL: clientOptions.baseURL,
       }),
     async (anthropic, attempt, context) => {
       const start = Date.now()
@@ -1057,10 +1062,16 @@ async function* queryModel(
   StreamEvent | AssistantMessage | SystemAPIErrorMessage,
   void
 > {
+  // Spec 0003 follow-up: resolve provider-prefixed routing up front so the
+  // global-auth gate below can let anthropic-kind provider requests through
+  // (they carry the provider's own key, no global ANTHROPIC_API_KEY needed).
+  const providerRoute = routeModel(options.model)
+
   // Check cheap conditions first — the off-switch await blocks on GrowthBook
   // init (~10ms). For non-Opus models (haiku, sonnet) this skips the await
   // entirely. Subscribers don't hit this path at all.
   if (
+    providerRoute?.kind !== 'anthropic' &&
     !isClaudeAISubscriber() &&
     isNonCustomOpusModel(options.model) &&
     (
@@ -1343,18 +1354,31 @@ async function* queryModel(
   // media stripping) but before Anthropic-specific logic (betas, thinking, caching).
   // Spec 0003: a provider-prefixed model routes to the provider named in its
   // prefix, independent of the globally configured provider.
-  const providerRoute = routeModel(options.model)
   if (providerRoute?.kind === 'openai-compat') {
     const { queryModelOpenAI } = await import('./openai/index.js')
-    yield* queryModelOpenAI(messagesForAPI, systemPrompt, tools, signal, options)
+    yield* queryModelOpenAI(
+      messagesForAPI,
+      systemPrompt,
+      tools,
+      signal,
+      options,
+    )
     return
   }
-  if (providerRoute?.kind === 'anthropic') {
-    throw new Error(
-      `Provider "${providerRoute.providerId}" uses the anthropic wire protocol, ` +
-      `which is not yet wired for provider prefix routing (spec 0003 follow-up). ` +
-      `Configure it with kind "openai-compat", or set ANTHROPIC_BASE_URL to its base URL.`,
-    )
+  // Spec 0003 follow-up: a provider-prefixed model for an `anthropic`-kind
+  // provider routes through the native Anthropic Messages path against that
+  // provider's endpoint. Normalize to the bare model id once so the
+  // capability gates, request body, and logs all see the same model.
+  const anthropicEndpoint =
+    providerRoute?.kind === 'anthropic' ? providerRoute : undefined
+  if (anthropicEndpoint) {
+    if (anthropicEndpoint.apiKey === undefined) {
+      throw new Error(
+        `Provider "${anthropicEndpoint.providerId}" has no API key. Set the ` +
+          `${anthropicEndpoint.apiKeyEnv} environment variable.`,
+      )
+    }
+    options.model = anthropicEndpoint.bareModel
   }
   if (getAPIProvider() === 'openai') {
     const { queryModelOpenAI } = await import('./openai/index.js')
@@ -1895,6 +1919,10 @@ async function* queryModel(
           model: options.model,
           fetchOverride: options.fetchOverride,
           source: options.querySource,
+          // anthropic-kind provider routing (spec 0003 follow-up): target the
+          // provider's own /v1/messages endpoint instead of the global one.
+          apiKey: anthropicEndpoint?.apiKey,
+          baseURL: anthropicEndpoint?.baseUrl,
         }),
       async (anthropic, attempt, context) => {
         attemptNumber = attempt
@@ -2729,7 +2757,12 @@ async function* queryModel(
           : 'other') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
       const result = yield* executeNonStreamingRequest(
-        { model: options.model, source: options.querySource },
+        {
+          model: options.model,
+          source: options.querySource,
+          apiKey: anthropicEndpoint?.apiKey,
+          baseURL: anthropicEndpoint?.baseUrl,
+        },
         {
           model: options.model,
           fallbackModel: options.fallbackModel,
@@ -2831,7 +2864,12 @@ async function* queryModel(
       try {
         // Fall back to non-streaming mode
         const result = yield* executeNonStreamingRequest(
-          { model: options.model, source: options.querySource },
+          {
+            model: options.model,
+            source: options.querySource,
+            apiKey: anthropicEndpoint?.apiKey,
+            baseURL: anthropicEndpoint?.baseUrl,
+          },
           {
             model: options.model,
             fallbackModel: options.fallbackModel,

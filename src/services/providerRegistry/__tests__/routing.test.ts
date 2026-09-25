@@ -17,7 +17,9 @@ describe('parseProviderModel', () => {
   })
 
   test('keeps internal slashes in the model id', () => {
-    expect(parseProviderModel('wildtoken/deepseek/deepseek-v4-pro-0813-free')).toEqual({
+    expect(
+      parseProviderModel('wildtoken/deepseek/deepseek-v4-pro-0813-free'),
+    ).toEqual({
       providerId: 'wildtoken',
       model: 'deepseek/deepseek-v4-pro-0813-free',
     })
@@ -92,6 +94,28 @@ describe('routeModel', () => {
     delete process.env.WILDTOKEN_API_KEY
   })
 
+  test('routes an anthropic-kind provider through with its endpoint', () => {
+    const relay = {
+      id: 'claude-relay',
+      kind: 'anthropic',
+      baseUrl: 'https://relay.example.com',
+      apiKeyEnv: 'RELAY_API_KEY',
+      defaultModel: 'claude-sonnet-4-5',
+      compatRule: 'permissive',
+    } as unknown as ProviderConfig
+    process.env.RELAY_API_KEY = 'relay-key'
+    const route = routeModel('claude-relay/claude-sonnet-4-5', [relay])
+    expect(route).toEqual({
+      kind: 'anthropic',
+      baseUrl: 'https://relay.example.com',
+      apiKey: 'relay-key',
+      apiKeyEnv: 'RELAY_API_KEY',
+      bareModel: 'claude-sonnet-4-5',
+      providerId: 'claude-relay',
+    })
+    delete process.env.RELAY_API_KEY
+  })
+
   test('returns null for a bare model', () => {
     expect(routeModel('grok-4.7', [wildtoken])).toBeNull()
   })
@@ -105,14 +129,13 @@ describe('providerContextWindow', () => {
     apiKeyEnv: 'WILDTOKEN_API_KEY',
     defaultModel: 'grok-4.7',
     compatRule: 'permissive',
-    models: [
-      { id: 'grok-4.7', contextWindow: 500000 },
-      { id: 'kimi-k3' },
-    ],
+    models: [{ id: 'grok-4.7', contextWindow: 500000 }, { id: 'kimi-k3' }],
   } as unknown as ProviderConfig
 
   test('reads the window for a prefixed model by its bare id', () => {
-    expect(providerContextWindow('wildtoken/grok-4.7', [wildtoken])).toBe(500000)
+    expect(providerContextWindow('wildtoken/grok-4.7', [wildtoken])).toBe(
+      500000,
+    )
   })
 
   test('a bare model has no provider window', () => {
@@ -120,6 +143,8 @@ describe('providerContextWindow', () => {
   })
 
   test('a prefixed model with no window entry is undefined', () => {
-    expect(providerContextWindow('wildtoken/kimi-k3', [wildtoken])).toBeUndefined()
+    expect(
+      providerContextWindow('wildtoken/kimi-k3', [wildtoken]),
+    ).toBeUndefined()
   })
 })

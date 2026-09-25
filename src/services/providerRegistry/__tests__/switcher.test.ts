@@ -21,6 +21,9 @@ afterEach(() => {
   delete process.env['OPENAI_API_KEY']
   delete process.env['OPENAI_BASE_URL']
   delete process.env['ANTHROPIC_API_KEY']
+  delete process.env['ANTHROPIC_BASE_URL']
+  delete process.env['ANTHROPIC_MODEL']
+  delete process.env['RELAY_API_KEY']
 })
 
 describe('switchProvider', () => {
@@ -91,6 +94,46 @@ describe('switchProvider', () => {
     const before = process.env['OPENAI_BASE_URL']
     switchProvider('cerebras', DEFAULT_PROVIDERS)
     expect(process.env['OPENAI_BASE_URL']).toBe(before)
+  })
+})
+
+describe('switchProvider — anthropic kind', () => {
+  const relay = [
+    {
+      id: 'claude-relay',
+      kind: 'anthropic',
+      baseUrl: 'https://relay.example.com',
+      apiKeyEnv: 'RELAY_API_KEY',
+      defaultModel: 'claude-sonnet-4-5',
+      compatRule: 'permissive',
+    },
+  ] as const
+
+  test('returns ANTHROPIC_* env vars, not the OPENAI_* set', async () => {
+    const { switchProvider } = await import('../switcher.js')
+    const result = switchProvider('claude-relay', [...relay])
+    expect(result.env['ANTHROPIC_BASE_URL']).toBe('https://relay.example.com')
+    expect(result.env['ANTHROPIC_MODEL']).toBe('claude-sonnet-4-5')
+    expect(result.env['CLAUDE_CODE_USE_OPENAI']).toBeUndefined()
+    expect(result.env['OPENAI_BASE_URL']).toBeUndefined()
+  })
+
+  test('shell block exports the key via variable reference', async () => {
+    process.env['RELAY_API_KEY'] = 'sk-relay'
+    const { switchProvider, buildShellExportBlock } = await import(
+      '../switcher.js'
+    )
+    const block = buildShellExportBlock(
+      switchProvider('claude-relay', [...relay]),
+    )
+    expect(block).toContain(
+      'export ANTHROPIC_BASE_URL=https://relay.example.com',
+    )
+    expect(block).toContain('export ANTHROPIC_API_KEY=$RELAY_API_KEY')
+    expect(block).toContain('export ANTHROPIC_MODEL=claude-sonnet-4-5')
+    expect(block).not.toContain('sk-relay')
+    expect(block).not.toContain('CLAUDE_CODE_USE_OPENAI')
+    delete process.env['RELAY_API_KEY']
   })
 })
 

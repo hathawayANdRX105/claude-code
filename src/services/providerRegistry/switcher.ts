@@ -49,14 +49,22 @@ export function switchProvider(
     )
   }
 
-  const env: Record<string, string> = {
-    CLAUDE_CODE_USE_OPENAI: '1',
-    OPENAI_BASE_URL: found.baseUrl,
-    OPENAI_MODEL: found.defaultModel,
-    // The value is the env var name that holds the key, not the key itself.
-    // Shell snippet: export OPENAI_API_KEY=$CEREBRAS_API_KEY
-    // We return the recommended export, but the actual value depends on user env.
-  }
+  // anthropic-kind providers activate the native Anthropic Messages path
+  // (ANTHROPIC_* env); openai-compat providers activate the OpenAI-compat layer.
+  const env: Record<string, string> =
+    found.kind === 'anthropic'
+      ? {
+          ANTHROPIC_BASE_URL: found.baseUrl,
+          ANTHROPIC_MODEL: found.defaultModel,
+        }
+      : {
+          CLAUDE_CODE_USE_OPENAI: '1',
+          OPENAI_BASE_URL: found.baseUrl,
+          OPENAI_MODEL: found.defaultModel,
+          // The value is the env var name that holds the key, not the key itself.
+          // Shell snippet: export OPENAI_API_KEY=$CEREBRAS_API_KEY
+          // We return the recommended export, but the actual value depends on user env.
+        }
 
   // Include the api key env var name so callers can construct the shell snippet.
   // We do NOT read process.env[found.apiKeyEnv] to avoid leaking the key.
@@ -69,7 +77,7 @@ export function switchProvider(
     process.env['CLAUDE_CODE_USE_OPENAI'] === '1' ||
     Boolean(process.env['OPENAI_API_KEY'])
   const hasAnthropicKey = Boolean(process.env['ANTHROPIC_API_KEY'])
-  if (hasOpenAIMode && hasAnthropicKey) {
+  if (found.kind === 'openai-compat' && hasOpenAIMode && hasAnthropicKey) {
     warnings.push(
       'Both ANTHROPIC_API_KEY and OpenAI-compat mode are set. ' +
         'ANTHROPIC_API_KEY is for Anthropic workspace endpoints (/v1/agents, /v1/vaults). ' +
@@ -91,21 +99,36 @@ export function switchProvider(
 /**
  * Build the shell export block to display to the user.
  *
- * Example output:
+ * openai-compat example:
  *   export CLAUDE_CODE_USE_OPENAI=1
  *   export OPENAI_BASE_URL=https://api.cerebras.ai/v1
  *   export OPENAI_API_KEY=$CEREBRAS_API_KEY
  *   export OPENAI_MODEL=llama-3.3-70b
  *
- * The API key line uses a variable reference so the actual key is never echoed.
+ * anthropic-kind example:
+ *   export ANTHROPIC_BASE_URL=https://relay.example.com
+ *   export ANTHROPIC_API_KEY=$MY_RELAY_KEY
+ *   export ANTHROPIC_MODEL=claude-sonnet-4-5
+ *
+ * The API key line uses a variable reference so the actual key is never
+ * echoed. It is omitted when it would be self-referential.
  */
 export function buildShellExportBlock(result: SwitchProviderResult): string {
   const { env, provider } = result
-  const lines: string[] = [
-    `export CLAUDE_CODE_USE_OPENAI=${env['CLAUDE_CODE_USE_OPENAI'] ?? '1'}`,
-    `export OPENAI_BASE_URL=${env['OPENAI_BASE_URL'] ?? provider.baseUrl}`,
-    `export OPENAI_API_KEY=$${provider.apiKeyEnv}`,
-    `export OPENAI_MODEL=${env['OPENAI_MODEL'] ?? provider.defaultModel}`,
-  ]
+  const lines: string[] =
+    provider.kind === 'anthropic'
+      ? [
+          `export ANTHROPIC_BASE_URL=${env['ANTHROPIC_BASE_URL'] ?? provider.baseUrl}`,
+          ...(provider.apiKeyEnv === 'ANTHROPIC_API_KEY'
+            ? []
+            : [`export ANTHROPIC_API_KEY=$${provider.apiKeyEnv}`]),
+          `export ANTHROPIC_MODEL=${env['ANTHROPIC_MODEL'] ?? provider.defaultModel}`,
+        ]
+      : [
+          `export CLAUDE_CODE_USE_OPENAI=${env['CLAUDE_CODE_USE_OPENAI'] ?? '1'}`,
+          `export OPENAI_BASE_URL=${env['OPENAI_BASE_URL'] ?? provider.baseUrl}`,
+          `export OPENAI_API_KEY=$${provider.apiKeyEnv}`,
+          `export OPENAI_MODEL=${env['OPENAI_MODEL'] ?? provider.defaultModel}`,
+        ]
   return lines.join('\n')
 }

@@ -14,9 +14,14 @@ export const CompatRuleSchema = z.enum([
 export type CompatRule = z.infer<typeof CompatRuleSchema>
 
 /**
- * The only supported provider kind for PR-2. Future PR-3+ may add 'oauth', 'bedrock-compat', etc.
+ * The provider wire protocol.
+ * - 'openai-compat': OpenAI Chat Completions; routed through the
+ *   OpenAI-compatible layer with a per-provider compat profile.
+ * - 'anthropic': Anthropic Messages API (relay/proxy serving /v1/messages);
+ *   routed through the native Anthropic path against the provider's
+ *   baseUrl with that provider's key.
  */
-export const ProviderKindSchema = z.literal('openai-compat')
+export const ProviderKindSchema = z.enum(['openai-compat', 'anthropic'])
 export type ProviderKind = z.infer<typeof ProviderKindSchema>
 
 /**
@@ -24,11 +29,13 @@ export type ProviderKind = z.infer<typeof ProviderKindSchema>
  *
  * Rules:
  * - id: kebab-case identifier used in /provider use <id>
- * - kind: only 'openai-compat' in PR-2
+ * - kind: wire protocol — 'openai-compat' or 'anthropic'
  * - baseUrl: full base URL including /v1 suffix if needed
  * - apiKeyEnv: name of the env var that holds the API key
- * - defaultModel: model string passed as OPENAI_MODEL
- * - compatRule: selects CompatProfile from providerCompatMatrix
+ * - defaultModel: model string passed as OPENAI_MODEL or ANTHROPIC_MODEL,
+ *   depending on kind
+ * - compatRule: selects CompatProfile from providerCompatMatrix; ignored
+ *   for kind 'anthropic' (the native Anthropic wire has no compat profile)
  */
 export const ProviderModelSchema = z.object({
   id: z.string().min(1),

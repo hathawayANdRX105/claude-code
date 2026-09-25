@@ -91,6 +91,42 @@ describe('loadProviders', () => {
     })
   })
 
+  test('loads an anthropic-kind provider entry', async () => {
+    const relay = {
+      id: 'claude-relay',
+      kind: 'anthropic',
+      baseUrl: 'https://relay.example.com',
+      apiKeyEnv: 'RELAY_API_KEY',
+      defaultModel: 'claude-sonnet-4-5',
+      compatRule: 'permissive',
+    }
+    writeFileSync(join(tmpDir, 'providers.json'), JSON.stringify([relay]))
+    const { loadProviders } = await import('../loader.js')
+    const providers = loadProviders()
+    expect(providers.find(p => p.id === 'claude-relay')).toMatchObject({
+      kind: 'anthropic',
+      baseUrl: 'https://relay.example.com',
+    })
+  })
+
+  test('rejects an unknown kind value', async () => {
+    writeFileSync(
+      join(tmpDir, 'providers.json'),
+      JSON.stringify([
+        {
+          id: 'x',
+          kind: 'claude',
+          baseUrl: 'https://x.example.com/v1',
+          apiKeyEnv: 'X_KEY',
+          defaultModel: 'm',
+          compatRule: 'permissive',
+        },
+      ]),
+    )
+    const { loadProviders } = await import('../loader.js')
+    expect(loadProviders().find(p => p.id === 'x')).toBeUndefined()
+  })
+
   test('user provider with same id as default replaces the default', async () => {
     const overrideCerebras = {
       id: 'cerebras',
