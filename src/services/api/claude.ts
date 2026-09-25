@@ -2415,19 +2415,20 @@ async function* queryModel(
       }
 
       // Some OpenAI-compatible proxies close the SSE stream after the last
-      // text deltas and never send content_block_stop. Commit those blocks
-      // from the deltas already accumulated, otherwise the reply flashes and
-      // the saved message keeps only the earlier thinking block.
+      // text deltas and never send content_block_stop. Commit those text
+      // blocks from the deltas already accumulated, otherwise the reply
+      // flashes and the saved message keeps only the earlier thinking block.
+      // A still-open tool_use block is deliberately left alone: committing it
+      // would hand query.ts a half-parsed call to execute.
       if (partialMessage && !streamIdleAborted) {
         for (let index = 0; index < contentBlocks.length; index++) {
           if (stoppedBlocks.has(index)) continue
           const contentBlock = contentBlocks[index]
-          if (!contentBlock) continue
+          if (contentBlock?.type !== 'text') continue
           const deltas = textDeltas.get(index)
-          if (deltas && contentBlock.type === 'text') {
-            contentBlock.text = deltas.join('')
-            textDeltas.delete(index)
-          }
+          if (!deltas) continue
+          contentBlock.text = deltas.join('')
+          textDeltas.delete(index)
           const recovered: AssistantMessage = {
             message: {
               ...partialMessage,
@@ -2447,10 +2448,6 @@ async function* queryModel(
           newMessages.push(recovered)
           stoppedBlocks.add(index)
           yield recovered
-          yield {
-            type: 'stream_event',
-            event: { type: 'content_block_stop', index },
-          }
         }
       }
       // Clear the idle timeout watchdog now that the stream loop has exited
