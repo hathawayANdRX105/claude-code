@@ -48,7 +48,10 @@ fn draw_transcript(frame: &mut Frame, state: &UiState, area: Rect) {
     };
 
     let widget = Paragraph::new(lines)
-        .block(Block::default().title(" ccb "))
+        .block(Block::default().title(format!(
+            " {} ",
+            if state.title.is_empty() { "ccb".to_string() } else { state.title.clone() }
+        )))
         .wrap(Wrap { trim: true })
         .scroll((scroll as u16, 0));
     frame.render_widget(widget, area);
@@ -80,6 +83,26 @@ pub fn transcript_lines(state: &UiState) -> Vec<Message> {
         out.push(Message::new(Role::Tool, body));
     }
 
+
+    // The agent echoes our prompt back; skip it when we already rendered ours.
+    if let Some(text) = &state.user_echo {
+        let is_echo = out
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .is_some_and(|m| &m.text == text);
+        if !text.is_empty() && !is_echo {
+            out.push(Message::new(Role::User, text.clone()));
+        }
+    }
+    for (_, text) in &state.terminals {
+        if !text.is_empty() {
+            out.push(Message::new(Role::Terminal, text.clone()));
+        }
+    }
+    if let Some(text) = &state.compaction {
+        out.push(Message::new(Role::Thought, text.clone()));
+    }
     // Plans render after the tool calls, sorted by id for a stable order.
     let mut plan_ids: Vec<&String> = state.plans.keys().collect();
     plan_ids.sort();
@@ -95,6 +118,7 @@ fn push_message(lines: &mut Vec<Line>, m: &Message) {
         Role::Assistant => ("assistant › ", Style::default().fg(Color::Gray)),
         Role::Thought => ("thinking › ", Style::default().fg(Color::DarkGray)),
         Role::Plan => ("plan › ", Style::default().fg(Color::Magenta)),
+        Role::Terminal => ("terminal › ", Style::default().fg(Color::Green)),
         Role::Tool => ("tool › ", Style::default().fg(Color::Yellow)),
     };
     let bold = style.add_modifier(Modifier::BOLD);

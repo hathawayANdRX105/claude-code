@@ -17,6 +17,8 @@ pub enum Role {
     Tool,
     /// The agent's plan, rendered as a checklist.
     Plan,
+    /// A terminal's command line and output.
+    Terminal,
 }
 
 impl Message {
@@ -66,6 +68,16 @@ pub struct UiState {
     /// Rendered plan bodies keyed by plan id, shown above the transcript tail.
     pub plans: std::collections::HashMap<String, String>,
     pub permission: Option<PendingPermission>,
+    /// The session's human-readable title, shown in the transcript border.
+    pub title: String,
+    /// Slash commands the agent advertises, for the hint line.
+    pub commands: Vec<String>,
+    /// Decoded terminal output, keyed by terminal id, in arrival order.
+    pub terminals: Vec<(String, String)>,
+    /// Compaction lifecycle text ("compacting…", the summary, failures).
+    pub compaction: Option<String>,
+    /// Streaming echo of the user's own message (agents may resend it).
+    pub user_echo: Option<String>,
     pub usage: Option<(u64, u64, Option<f64>)>,
     pub status: String,
     pub quit: bool,
@@ -151,6 +163,66 @@ impl UiState {
             AcpEvent::PlanRemoved { plan_id } => {
                 self.plans.remove(&plan_id);
             }
+            AcpEvent::SessionTitle { title } => {
+                self.title = title;
+            }
+            AcpEvent::AvailableCommands { names } => {
+                self.commands = names;
+            }
+            AcpEvent::ConfigOptions { summary } => {
+                self.status = summary;
+            }
+            AcpEvent::TerminalUpdate { terminal_id, command, exited } => {
+                // A command with no exit status starts (or restarts) the
+                // entry; one carrying an exit status annotates the entry that
+                // already collected the output.
+                if let Some((_, existing)) =
+                    self.terminals.iter_mut().find(|(id, _)| id == &terminal_id)
+                {
+                    if let Some(code) = exited {
+                        existing.push_str(&format!("  (exit {code})"));
+                    } else if existing.starts_with("$ ") {
+                        existing.clear();
+                        existing.push_str(&format!("$ {}", command.as_deref().unwrap_or("")));
+                    }
+                } else {
+                    let line = format!("$ {}", command.as_deref().unwrap_or(&terminal_id));
+                    self.terminals.push((terminal_id, line));
+                }
+            }
+            AcpEvent::TerminalOutputChunk { terminal_id, text } => {
+                if let Some((_, existing)) =
+                    self.terminals.iter_mut().find(|(id, _)| id == &terminal_id)
+                {
+                    if !text.is_empty() && !existing.ends_with('\n') {
+                        existing.push('\n');
+                    }
+                    existing.push_str(&text);
+                } else {
+                    self.terminals.push((terminal_id, text));
+                }
+                self.follow_bottom = true;
+            }
+            AcpEvent::CompactionUpdate { status, summary } => {
+                self.compaction = match status.as_str() {
+                    "in_progress" => Some("compacting context…".to_string()),
+                    "failed" => Some("compaction failed".to_string()),
+                    "cancelled" => None,
+                    _ => summary,
+                };
+            }
+            AcpEvent::CompactionSummaryChunk { text } => {
+                self.compaction.get_or_insert_default().push_str(&text);
+                self.follow_bottom = true;
+            }
+            // We record the prompt at submit time; the agent echoes it back, so
+            // user messages are only rendered if they differ from ours.
+            AcpEvent::UserMessageChunk { text } => {
+                self.set_user_echo(&text);
+            }
+            AcpEvent::UserMessage { text } => {
+                self.set_user_echo(&text);
+            }
             AcpEvent::RequestPermission(req) => {
                 let options = req.options;
                 // Default to the first allow option if there is one.
@@ -196,6 +268,17 @@ impl UiState {
         }
         self.busy = false;
     }
+
+
+    /// Track the user message the agent echoed back. It is only rendered when
+    /// it differs from the prompt we already committed at submit time.
+    pub fn set_user_echo(&mut self, text: &str) {
+        match &mut self.user_echo {
+            Some(buf) if text.starts_with(buf.as_str()) => *buf = text.to_string(),
+            _ => self.user_echo = Some(text.to_string()),
+        }
+    }
+
 
     /// Record a submitted user prompt and open the streaming slot.
     pub fn submit(&mut self, prompt: String) {

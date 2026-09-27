@@ -70,6 +70,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 state::Role::Thought => "thinking",
                 state::Role::Tool => "tool",
                 state::Role::Plan => "plan",
+                state::Role::Terminal => "terminal",
             };
             out.push_str(&format!("{label} › {}\n\n", m.text));
         }
