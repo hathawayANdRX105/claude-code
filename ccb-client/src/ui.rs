@@ -54,8 +54,7 @@ fn draw_transcript(frame: &mut Frame, state: &UiState, area: Rect) {
     frame.render_widget(widget, area);
 }
 
-/// The committed messages plus the live streaming tail, in render order.
-fn transcript_lines(state: &UiState) -> Vec<Message> {
+pub fn transcript_lines(state: &UiState) -> Vec<Message> {
     let mut out: Vec<Message> = state.messages.clone();
     if let Some(streaming) = &state.streaming {
         if !streaming.is_empty() {
@@ -80,6 +79,13 @@ fn transcript_lines(state: &UiState) -> Vec<Message> {
         };
         out.push(Message::new(Role::Tool, body));
     }
+
+    // Plans render after the tool calls, sorted by id for a stable order.
+    let mut plan_ids: Vec<&String> = state.plans.keys().collect();
+    plan_ids.sort();
+    for id in plan_ids {
+        out.push(Message::new(Role::Plan, state.plans[id].clone()));
+    }
     out
 }
 
@@ -88,6 +94,7 @@ fn push_message(lines: &mut Vec<Line>, m: &Message) {
         Role::User => ("you › ", Style::default().fg(Color::Cyan)),
         Role::Assistant => ("assistant › ", Style::default().fg(Color::Gray)),
         Role::Thought => ("thinking › ", Style::default().fg(Color::DarkGray)),
+        Role::Plan => ("plan › ", Style::default().fg(Color::Magenta)),
         Role::Tool => ("tool › ", Style::default().fg(Color::Yellow)),
     };
     let bold = style.add_modifier(Modifier::BOLD);
@@ -122,10 +129,20 @@ fn draw_status(frame: &mut Frame, state: &UiState, area: Rect) {
         .map(|s| s.chars().take(8).collect::<String>())
         .unwrap_or_else(|| "connecting".to_string());
 
-    let mut spans: Vec<Span> = vec![Span::styled(
-        format!("{} · session {} ", if state.busy { "busy" } else { "idle" }, session),
-        Style::default().fg(Color::DarkGray),
-    )];
+    let mut spans: Vec<Span> = vec![
+        // The agent's own state word (running/idle/requires_action) when known.
+        Span::styled(
+            {
+                let state_word = if state.agent_state.is_empty() {
+                    if state.busy { "busy" } else { "idle" }
+                } else {
+                    state.agent_state.as_str()
+                };
+                format!("{state_word} · session {session} ")
+            },
+            Style::default().fg(Color::DarkGray),
+        ),
+    ];
     if let Some((used, size, cost)) = state.usage {
         spans.push(Span::styled(
             format!("· {} / {} tokens ", used, size),

@@ -62,14 +62,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Verification dump: write the transcript exactly as the UI rendered it.
     if let Ok(path) = std::env::var("CCB_DUMP") {
         let mut out = String::new();
-        for (role, text) in state.dump_transcript() {
-            let label = match role {
+        // Render the same lines the UI does, so the dump cannot drift from it.
+        for m in ui::transcript_lines(&state) {
+            let label = match m.role {
                 state::Role::User => "you",
                 state::Role::Assistant => "assistant",
                 state::Role::Thought => "thinking",
                 state::Role::Tool => "tool",
+                state::Role::Plan => "plan",
             };
-            out.push_str(&format!("{label} › {text}\n\n"));
+            out.push_str(&format!("{label} › {}\n\n", m.text));
         }
         let _ = std::fs::write(&path, out);
     }

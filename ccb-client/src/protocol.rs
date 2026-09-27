@@ -109,6 +109,13 @@ pub enum AcpEvent {
     Error { message: String },
     /// The socket closed; no more events will arrive.
     Closed,
+
+    /// The agent's run state changed (working / idle / needs input).
+    StateUpdate { state: String },
+    /// A plan appeared or changed. `text` is the rendered plan body.
+    PlanUpdate { plan_id: String, text: String },
+    /// A plan was removed.
+    PlanRemoved { plan_id: String },
 }
 
 /// Compute the default daemon socket path, matching `defaultSharedAddress()`
@@ -171,6 +178,67 @@ pub fn parse_session_update(params: &serde_json::Value) -> Option<AcpEvent> {
                 .get("cost")
                 .and_then(|c| c.get("usd"))
                 .and_then(|v| v.as_f64()),
+        }),
+        "state_update" => Some(AcpEvent::StateUpdate {
+            state: update
+                .get("state")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+        }),
+        "plan_update" => {
+            let plan = update.get("plan")?;
+            let plan_id = plan
+                .get("planId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let text = match plan.get("type").and_then(|v| v.as_str()) {
+                // items: render the entries with their status.
+                Some("items") => plan
+                    .get("entries")
+                    .and_then(|v| v.as_array())
+                    .map(|entries| {
+                        entries
+                            .iter()
+                            .map(|e| {
+                                let status = e.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                                let mark = match status {
+                                    "completed" => 'x',
+                                    "in_progress" => '>',
+                                    "cancelled" => '-',
+                                    _ => ' ',
+                                };
+                                format!(
+                                    "[{}] {}",
+                                    mark,
+                                    e.get("content").and_then(|v| v.as_str()).unwrap_or("")
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+                    .unwrap_or_default(),
+                Some("markdown") => plan
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                // file plans and custom types: surface the locator only.
+                _ => plan
+                    .get("uri")
+                    .and_then(|v| v.as_str())
+                    .map(|u| format!("plan in {u}"))
+                    .unwrap_or_default(),
+            };
+            Some(AcpEvent::PlanUpdate { plan_id, text })
+        }
+        "plan_removed" => Some(AcpEvent::PlanRemoved {
+            plan_id: update
+                .get("planId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
         }),
         _ => None,
     }

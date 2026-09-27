@@ -15,6 +15,8 @@ pub enum Role {
     Thought,
     /// A tool call and its output.
     Tool,
+    /// The agent's plan, rendered as a checklist.
+    Plan,
 }
 
 impl Message {
@@ -59,6 +61,10 @@ pub struct UiState {
     /// Accumulated thinking for the current turn.
     pub thinking: Option<String>,
     pub tools: Vec<ToolCall>,
+    /// The agent's current run state ("running"/"idle"/"requires_action").
+    pub agent_state: String,
+    /// Rendered plan bodies keyed by plan id, shown above the transcript tail.
+    pub plans: std::collections::HashMap<String, String>,
     pub permission: Option<PendingPermission>,
     pub usage: Option<(u64, u64, Option<f64>)>,
     pub status: String,
@@ -128,6 +134,22 @@ impl UiState {
             }
             AcpEvent::UsageUpdate { used, size, cost_usd } => {
                 self.usage = Some((used, size, cost_usd));
+            }
+
+            AcpEvent::StateUpdate { state } => {
+                self.agent_state = state.clone();
+                // requires_action ends a turn from the client's point of view:
+                // the agent is waiting on the user, not still streaming.
+                self.busy = state == "running";
+                if state == "requires_action" {
+                    self.finish_turn();
+                }
+            }
+            AcpEvent::PlanUpdate { plan_id, text } => {
+                self.plans.insert(plan_id, text);
+            }
+            AcpEvent::PlanRemoved { plan_id } => {
+                self.plans.remove(&plan_id);
             }
             AcpEvent::RequestPermission(req) => {
                 let options = req.options;
@@ -214,27 +236,5 @@ impl UiState {
         };
     }
 
-    /// The transcript exactly as the UI renders it (live tail included), for
-    /// verification dumps.
-    pub fn dump_transcript(&self) -> Vec<(Role, String)> {
-        let mut out: Vec<(Role, String)> =
-            self.messages.iter().map(|m| (m.role, m.text.clone())).collect();
-        if let Some(s) = &self.streaming {
-            if !s.is_empty() { out.push((Role::Assistant, s.clone())); }
-        }
-        if let Some(t) = &self.thinking {
-            if !t.is_empty() { out.push((Role::Thought, t.clone())); }
-        }
-        for tool in &self.tools {
-            let label = tool.title.clone().unwrap_or(tool.name.clone());
-            let body = if tool.output.is_empty() {
-                format!("{label} [{}]", tool.status.as_deref().unwrap_or(""))
-            } else {
-                format!("{label} [{}]\n{}", tool.status.as_deref().unwrap_or(""), tool.output)
-            };
-            out.push((Role::Tool, body));
-        }
-        out
-    }
 
 }
