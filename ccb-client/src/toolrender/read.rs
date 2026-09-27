@@ -35,7 +35,7 @@ pub fn render(call: &ToolCall) -> Vec<Line<'static>> {
         Style::default().fg(Ink::Subtle.color()),
     );
     if lines.len() > shown {
-        body.push(render::dim(format!(
+        body.push(render::dim_line(format!(
             "… {} more lines",
             lines.len() - shown
         )));

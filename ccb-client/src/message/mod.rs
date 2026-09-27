@@ -8,29 +8,16 @@
 use ratatui::text::Line;
 
 use crate::render;
-use crate::state::{Message, Role};
+use crate::state::{Message, Role, UiState};
 use crate::theme::{fig, Ink};
 
-mod assistant;
-mod system;
-mod tool;
-mod user;
-
-pub use assistant::{
-    render_assistant_thinking, render_assistant_text, render_compact_boundary,
-    render_grouped_tool_use, render_plan_approval, render_task_assignment,
-};
-pub use system::{
-    render_hook_progress, render_rate_limit, render_shutdown, render_snippet_boundary,
-    render_system_api_error, render_system_text,
-};
-pub use tool::{render_collapsed_read, render_tool_call, render_tool_use};
-pub use user::{
-    render_user_bash_input, render_user_bash_output, render_user_channel, render_user_command,
-    render_user_cross_session, render_user_fork, render_user_github_webhook, render_user_image,
-    render_user_local_command_output, render_user_memory_input, render_user_plan,
-    render_user_resource_update, render_user_teammate, render_user_text,
-};
+// The per-type renderers are the port of `src/components/messages/`. They are
+// public modules so the transcript can render a specific message type
+// directly, not only through [`render_message`].
+pub mod assistant;
+pub mod system;
+pub mod tool;
+pub mod user;
 
 /// Render any message. This replaces the type switch in `Messages.tsx`.
 pub fn render_message(m: &Message) -> Vec<Line<'static>> {
@@ -41,7 +28,8 @@ pub fn render_message(m: &Message) -> Vec<Line<'static>> {
         Role::Plan => assistant::render_plan_body(m.text.as_str()),
         Role::Terminal => render_terminal(m.text.as_str()),
         Role::Tool => match &m.tool {
-            // Tool messages keep the call so the renderer decides the layout.
+            // The frame (status diamond, `⎿` gutter) is the message layer's;
+            // the body under it is chosen by kind in `toolrender`.
             Some(call) => tool::render_tool_call(call),
             None => Vec::new(),
         },
@@ -50,9 +38,21 @@ pub fn render_message(m: &Message) -> Vec<Line<'static>> {
     lines
 }
 
+/// A terminal command and its output, with the `terminal` label.
+fn render_terminal(text: &str) -> Vec<Line<'static>> {
+    let mut lines = vec![render::header(
+        fig::DIAMOND_FILLED,
+        Ink::Success,
+        "terminal",
+        Ink::BashBorder,
+    )];
+    let mut body = render::wrap(text, ratatui::style::Style::default().fg(Ink::Subtle.color()));
+    render::indent(&mut body, 1);
+    lines.extend(body);
+    lines
+}
+
 /// The `⎿` gutter `MessageResponse.tsx` puts before a nested response body.
-/// Returns the lines indented under it, matching the two-space margin plus
-/// the glyph.
 pub fn response_body(body: Vec<Line<'static>>) -> Vec<Line<'static>> {
     let mut out: Vec<Line<'static>> = vec![render::line(vec![render::dim(
         fig::RESPONSE_GUTTER.to_string(),
@@ -60,5 +60,60 @@ pub fn response_body(body: Vec<Line<'static>>) -> Vec<Line<'static>> {
     let mut body = body;
     render::indent(&mut body, 1);
     out.extend(body);
+    out
+}
+
+/// Every message the transcript shows, in render order, with the live
+/// streaming tail last. This is the single path both the screen and the
+/// verification dump use, so they cannot disagree.
+pub fn render_transcript(state: &UiState) -> Vec<Vec<Line<'static>>> {
+    let mut out: Vec<Vec<Line<'static>>> = Vec::new();
+    for m in ordered_messages(state) {
+        out.push(render_message(&m));
+    }
+    out
+}
+
+/// The messages in the order the REPL shows them: committed history, then the
+/// live streaming assistant text, thinking, and in-flight tool calls.
+fn ordered_messages(state: &UiState) -> Vec<Message> {
+    let mut out: Vec<Message> = state.messages.clone();
+    if let Some(s) = &state.streaming {
+        if !s.is_empty() {
+            out.push(Message::new(Role::Assistant, s.clone()));
+        }
+    }
+    if let Some(t) = &state.thinking {
+        if !t.is_empty() {
+            out.push(Message::new(Role::Thought, t.clone()));
+        }
+    }
+    for tool in &state.tools {
+        out.push(Message::tool(tool.clone()));
+    }
+    if let Some(text) = &state.user_echo {
+        let is_echo = out
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .is_some_and(|m| &m.text == text);
+        if !text.is_empty() && !is_echo {
+            out.push(Message::new(Role::User, text.clone()));
+        }
+    }
+    for (_, text) in &state.terminals {
+        if !text.is_empty() {
+            out.push(Message::new(Role::Terminal, text.clone()));
+        }
+    }
+    if let Some(text) = &state.compaction {
+        out.push(Message::new(Role::Thought, text.clone()));
+    }
+    // Plans render after the tool calls, sorted by id for a stable order.
+    let mut plan_ids: Vec<&String> = state.plans.keys().collect();
+    plan_ids.sort();
+    for id in plan_ids {
+        out.push(Message::new(Role::Plan, state.plans[id].clone()));
+    }
     out
 }

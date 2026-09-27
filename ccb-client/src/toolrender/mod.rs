@@ -13,23 +13,25 @@ use ratatui::text::Line;
 
 use crate::render;
 use crate::state::ToolCall;
-use crate::theme::{fig, Ink, status_glyph};
+use crate::theme::{Ink, status_glyph};
 
-mod bash;
-mod edit;
-mod fetch;
-mod read;
-mod search;
+pub mod bash;
+pub mod diff;
+pub mod edit;
+pub mod fetch;
+pub mod read;
+pub mod search;
 
-pub use bash::render_bash;
-pub use edit::render_edit;
-pub use fetch::render_fetch;
-pub use read::render_read;
-pub use search::render_search;
-
-/// Render one tool call. Returns the call's lines, without a trailing blank.
+/// Render one tool call, header included. For callers that draw their own
+/// frame, use [`render_body`] instead so the header is not repeated.
 pub fn render(call: &ToolCall) -> Vec<Line<'static>> {
     let mut lines = header(call);
+    lines.extend(render_body(call));
+    lines
+}
+
+/// The call's body, chosen by `kind`, without the header or a trailing blank.
+pub fn render_body(call: &ToolCall) -> Vec<Line<'static>> {
     let body = match call.kind.as_deref() {
         Some("edit") | Some("delete") | Some("move") => edit::render(call),
         Some("read") => read::render(call),
@@ -40,12 +42,12 @@ pub fn render(call: &ToolCall) -> Vec<Line<'static>> {
         // generic output block below is what the REPL shows for them too.
         _ => generic(call),
     };
-    let had_body = !body.is_empty();
-    lines.extend(body);
-    if had_body {
-        lines.push(render::blank());
+    if body.is_empty() {
+        return body;
     }
-    lines
+    let mut out = body;
+    out.push(render::blank());
+    out
 }
 
 /// The status line every call starts with: the diamond glyph, the tool's
@@ -123,5 +125,3 @@ pub fn spinner_frames() -> &'static [&'static str] {
     &["✻", "✽", "✻", "✽", "✻"]
 }
 
-/// `fig` re-export so tool modules reach the glyphs through one path.
-pub use fig as figures;

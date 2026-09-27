@@ -4,7 +4,6 @@
 //! `GlobTool/UI.tsx`. Both list matches with the path and the matching line;
 //! Grep adds the line's text.
 
-use ratatui::style::Style;
 use ratatui::text::Line;
 
 use crate::render;
@@ -39,21 +38,21 @@ pub fn render(call: &ToolCall) -> Vec<Line<'static>> {
                     spans.push(render::colored(line_no.to_string(), Ink::Subtle));
                     if !text.is_empty() {
                         spans.push(render::raw(":"));
-                        spans.push(Span_text(text));
+                        spans.push(span_text(text));
                     }
                 }
                 render::line(spans)
             }
-            None => render::line(vec![Span_text(entry)]),
+            None => render::line(vec![span_text(entry)]),
         });
     }
     if raw.len() > shown {
-        out.push(render::dim(format!("… {} more matches", raw.len() - shown)));
+        out.push(render::dim_line(format!("… {} more matches", raw.len() - shown)));
     }
     out
 }
 
 /// Output text in the theme's foreground.
-fn Span_text(s: &str) -> ratatui::text::Span<'static> {
+fn span_text(s: &str) -> ratatui::text::Span<'static> {
     render::text(s.to_string())
 }

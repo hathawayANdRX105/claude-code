@@ -4,7 +4,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::state::{Message, Role, StyledLine, Tone, ToolCall, UiState};
+use crate::message;
+use crate::state::UiState;
+use crate::theme::Ink;
 
 /// Draw the whole screen: transcript, permission overlay, input, status.
 pub fn render(frame: &mut Frame, state: &UiState) {
@@ -28,14 +30,14 @@ pub fn render(frame: &mut Frame, state: &UiState) {
 }
 
 fn draw_transcript(frame: &mut Frame, state: &UiState, area: Rect) {
-    let mut lines: Vec<Line> = Vec::new();
-    for m in transcript_lines(state) {
-        push_message(&mut lines, &m);
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    for m in message::render_transcript(state) {
+        lines.extend(m);
     }
     if lines.is_empty() {
         lines.push(Line::from(Span::styled(
             " (no messages yet) ",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Ink::Dim.color()),
         )));
     }
 
@@ -47,168 +49,16 @@ fn draw_transcript(frame: &mut Frame, state: &UiState, area: Rect) {
         0
     };
 
+    let title = if state.title.is_empty() {
+        " ccb ".to_string()
+    } else {
+        format!(" {} ", state.title)
+    };
     let widget = Paragraph::new(lines)
-        .block(Block::default().title(format!(
-            " {} ",
-            if state.title.is_empty() { "ccb".to_string() } else { state.title.clone() }
-        )))
+        .block(Block::default().title(title))
         .wrap(Wrap { trim: true })
         .scroll((scroll as u16, 0));
     frame.render_widget(widget, area);
-}
-
-pub fn transcript_lines(state: &UiState) -> Vec<Message> {
-    let mut out: Vec<Message> = state.messages.clone();
-    if let Some(streaming) = &state.streaming {
-        if !streaming.is_empty() {
-            out.push(Message::new(Role::Assistant, streaming.clone()));
-        }
-    }
-    if let Some(thinking) = &state.thinking {
-        if !thinking.is_empty() {
-            out.push(Message::new(Role::Thought, thinking.clone()));
-        }
-    }
-    for tool in &state.tools {
-        out.push(Message::tool(tool.clone()));
-    }
-
-    // The agent echoes our prompt back; skip it when we already rendered ours.
-    if let Some(text) = &state.user_echo {
-        let is_echo = out
-            .iter()
-            .rev()
-            .find(|m| m.role == Role::User)
-            .is_some_and(|m| &m.text == text);
-        if !text.is_empty() && !is_echo {
-            out.push(Message::new(Role::User, text.clone()));
-        }
-    }
-    for (_, text) in &state.terminals {
-        if !text.is_empty() {
-            out.push(Message::new(Role::Terminal, text.clone()));
-        }
-    }
-    if let Some(text) = &state.compaction {
-        out.push(Message::new(Role::Thought, text.clone()));
-    }
-    // Plans render after the tool calls, sorted by id for a stable order.
-    let mut plan_ids: Vec<&String> = state.plans.keys().collect();
-    plan_ids.sort();
-    for id in plan_ids {
-        out.push(Message::new(Role::Plan, state.plans[id].clone()));
-    }
-    out
-}
-/// Render one tool call. `kind` picks the layout, matching how the JS REPL
-/// dispatches to each tool's own renderer; a `diff` block is coloured line
-/// by line the way FileEditTool renders a patch.
-fn render_tool(tool: &ToolCall) -> Vec<StyledLine> {
-    let mut out: Vec<StyledLine> = Vec::new();
-    let label = tool.title.clone().unwrap_or_else(|| tool.name.clone());
-    let status = tool.status.clone().unwrap_or_default();
-    let heading = if status.is_empty() {
-        label.clone()
-
-    } else {
-        format!("{label}  {status}")
-    };
-    out.push(StyledLine { text: heading, tone: Tone::Normal });
-
-    // Path heading for file tools, relative to cwd when possible.
-    if let Some(first) = tool.locations.first() {
-        out.push(StyledLine {
-            text: shorten_path(first),
-            tone: Tone::Path,
-        });
-        for extra in tool.locations.iter().skip(1) {
-            out.push(StyledLine { text: shorten_path(extra), tone: Tone::Path });
-        }
-    }
-
-    if let Some(patch) = &tool.diff {
-        if !patch.is_empty() {
-            out.extend(render_diff(patch));
-            return out;
-        }
-    }
-
-    for line in tool.output.lines() {
-        out.push(StyledLine { text: line.to_string(), tone: Tone::Dim });
-    }
-    out
-}
-
-/// Colour a unified diff: `+` added (green), `-` removed (red), `@@` hunk
-/// header dim, everything else plain.
-fn render_diff(patch: &str) -> Vec<StyledLine> {
-    patch
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|line| {
-            let tone = match line.as_bytes().first() {
-                Some(b'+') => Tone::Added,
-                Some(b'-') => Tone::Removed,
-                Some(b'@') => Tone::Dim,
-                _ => Tone::Normal,
-            };
-            StyledLine { text: line.to_string(), tone }
-        })
-        .collect()
-}
-
-/// Show the tail of an absolute path that still identifies the file.
-fn shorten_path(path: &str) -> String {
-    const KEEP: usize = 3;
-    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
-    if parts.len() <= KEEP {
-        return path.to_string();
-    }
-    let tail = &parts[parts.len() - KEEP..];
-    format!("…/{}", tail.join("/"))
-}
-
-fn tone_style(tone: Tone) -> Style {
-    match tone {
-        Tone::Normal => Style::default().fg(Color::Gray),
-        Tone::Dim => Style::default().fg(Color::DarkGray),
-        Tone::Added => Style::default().fg(Color::Green),
-        Tone::Removed => Style::default().fg(Color::Red),
-        Tone::Path => Style::default().fg(Color::Blue),
-    }
-}
-
-/// The body lines of a message with their colours. Tool messages go through
-/// [render_tool] so diff lines are coloured; everything else is flat.
-pub fn render_message_body(m: &Message) -> Vec<(String, Style)> {
-    if let Some(call) = &m.tool {
-        return render_tool(call)
-            .into_iter()
-            .map(|l| (l.text, tone_style(l.tone)))
-            .collect();
-    }
-    m.text
-        .lines()
-        .map(|l| (l.to_string(), Style::default()))
-        .collect()
-}
-
-fn push_message(lines: &mut Vec<Line>, m: &Message) {
-    let (label, style) = match m.role {
-        Role::User => ("you › ", Style::default().fg(Color::Cyan)),
-        Role::Assistant => ("assistant › ", Style::default().fg(Color::Gray)),
-        Role::Thought => ("thinking › ", Style::default().fg(Color::DarkGray)),
-        Role::Plan => ("plan › ", Style::default().fg(Color::Magenta)),
-        Role::Terminal => ("terminal › ", Style::default().fg(Color::Green)),
-        Role::Tool => ("tool › ", Style::default().fg(Color::Yellow)),
-    };
-    let bold = style.add_modifier(Modifier::BOLD);
-    lines.push(Line::from(vec![Span::styled(label, bold)]));
-    for (text, tone) in render_message_body(m) {
-        let style = if m.tool.is_some() { tone } else { style };
-        lines.push(Line::from(vec![Span::styled(format!("    {text}"), style)]));
-    }
-    lines.push(Line::from(""));
 }
 
 fn draw_input(frame: &mut Frame, state: &UiState, area: Rect) {

@@ -1,7 +1,4 @@
-mod daemon;
-mod protocol;
-mod state;
-mod ui;
+use ccb_client::{message, protocol, ui};
 
 use std::error::Error;
 use std::time::Duration;
@@ -12,9 +9,9 @@ use crossterm::terminal;
 use ratatui::DefaultTerminal;
 use ratatui::backend::CrosstermBackend;
 
-use daemon::AcpClient;
-use protocol::default_socket_path;
-use state::UiState;
+use ccb_client::daemon::AcpClient;
+use ccb_client::protocol::default_socket_path;
+use ccb_client::state::UiState;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -64,23 +61,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     if let Ok(path) = std::env::var("CCB_DUMP") {
         let mut out = String::new();
         // Render the same lines the UI does, so the dump cannot drift from it.
-        for m in ui::transcript_lines(&state) {
-            let label = match m.role {
-                state::Role::User => "you",
-                state::Role::Assistant => "assistant",
-                state::Role::Thought => "thinking",
-                state::Role::Tool => "tool",
-                state::Role::Plan => "plan",
-                state::Role::Terminal => "terminal",
-            };
-            // Tool messages go through the renderer, the same as the screen,
-            // so the dump cannot disagree with what was displayed.
-            let body = ui::render_message_body(&m)
-                .into_iter()
-                .map(|(text, _)| text)
+        for group in message::render_transcript(&state) {
+            let body = group
+                .iter()
+                .map(|l| {
+                    l.spans
+                        .iter()
+                        .map(|sp| sp.content.as_ref())
+                        .collect::<String>()
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
-            out.push_str(&format!("{label} › {body}\n\n"));
+            out.push_str(&body);
+            out.push('\n');
         }
         let _ = std::fs::write(&path, out);
     }

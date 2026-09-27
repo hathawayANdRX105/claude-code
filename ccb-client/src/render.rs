@@ -16,7 +16,7 @@ use crate::theme::Ink;
 pub const INDENT: &str = "  ";
 
 /// Build a `Line` from spans.
-pub fn line(spans: Vec<Span>) -> Line<'static> {
+pub fn line(spans: Vec<Span<'static>>) -> Line<'static> {
     Line::from(spans)
 }
 
@@ -40,6 +40,11 @@ pub fn dim(s: impl Into<String>) -> Span<'static> {
     Span::styled(s.into(), Style::default().fg(Ink::Dim.color()))
 }
 
+/// A dimmed span on its own line, for trailing notices like "… N more lines".
+pub fn dim_line(s: impl Into<String>) -> Line<'static> {
+    line(vec![dim(s)])
+}
+
 /// A bold span, used for the role label (`you`, `assistant`, `tool`).
 pub fn bold(s: impl Into<String>, ink: Ink) -> Span<'static> {
     Span::styled(
@@ -58,7 +63,7 @@ pub fn indent(lines: &mut [Line<'static>], depth: usize) {
         for _ in 0..depth {
             spans.push(Span::raw(INDENT));
         }
-        spans.extend(l.spans.drain(..));
+        spans.append(&mut l.spans);
         l.spans = spans;
     }
 }

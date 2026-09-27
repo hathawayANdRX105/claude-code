@@ -30,7 +30,7 @@ pub fn render(call: &ToolCall) -> Vec<Line<'static>> {
         Style::default().fg(Ink::Subtle.color()),
     );
     if lines.len() > shown {
-        body.push(render::dim(format!("… {} more lines", lines.len() - shown)));
+        body.push(render::dim_line(format!("… {} more lines", lines.len() - shown)));
     }
     render::indent(&mut body, 1);
     out.extend(body);

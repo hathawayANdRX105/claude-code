@@ -51,11 +51,12 @@ pub struct ToolCall {
     pub output: String,
     /// Patch text from a `type:"diff"` block, rendered with line colouring.
     pub diff: Option<String>,
+    /// Process exit status, when the tool reported one (shell calls).
+    pub exit_code: Option<i32>,
 }
-
 impl ToolCall {
     /// Flattened text for dumps and the status line. The UI renders the call
-    /// itself (see `ui::render_tool`) so diff lines keep their colour.
+    /// itself (see `toolrender::render`) so diff lines keep their colour.
     pub fn body_text(&self) -> String {
         let label = self.title.clone().unwrap_or_else(|| self.name.clone());
         let mut out = match &self.status {
