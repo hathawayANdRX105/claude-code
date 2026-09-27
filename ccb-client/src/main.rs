@@ -57,6 +57,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     execute!(term.backend_mut(), terminal::LeaveAlternateScreen)?;
 
+    // Verification dump: write the transcript and the permission dialog.
     // Verification dump: write the transcript exactly as the UI rendered it.
     if let Ok(path) = std::env::var("CCB_DUMP") {
         let mut out = String::new();
@@ -83,6 +84,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 /// Handle one key, routing to the permission dialog when it is open.
 fn handle_key(client: &AcpClient, state: &mut UiState, code: KeyCode, mods: KeyModifiers) {
+    // `app:interrupt` is bound globally in the REPL, so ctrl+c reaches the
+    // permission dialog too. Without this the dialog swallows `q` and there
+    // is no way out of a pending prompt.
+    if code == KeyCode::Char('c') && mods.contains(KeyModifiers::CONTROL) {
+        let _ = client.cancel(state.session_id.as_deref().unwrap_or(""));
+        state.status = "cancelling…".into();
+        return;
+    }
     if state.permission.is_some() {
         handle_permission_key(client, state, code);
         return;
@@ -179,6 +188,19 @@ fn drain_events(client: &AcpClient, state: &mut UiState) {
             Some(ev) => {
                 let closed = matches!(ev, protocol::AcpEvent::Closed);
                 state.apply(ev);
+                // Dump the dialog as it appears: by the time the user answers
+                // it, the state is already cleared.
+                if let (Ok(path), Some(p)) = (
+                    std::env::var("CCB_PERM_DUMP"),
+                    state.permission.as_ref(),
+                ) {
+                    let mut out = String::from("=== permission dialog ===\n");
+                    for l in ccb_client::permission::render_permission(p) {
+                        out.push_str(&l.spans.iter().map(|s| s.content.as_ref()).collect::<String>());
+                        out.push('\n');
+                    }
+                    let _ = std::fs::write(&path, out);
+                }
                 if closed {
                     return;
                 }

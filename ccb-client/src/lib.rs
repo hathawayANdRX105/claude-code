@@ -10,6 +10,8 @@
 
 pub mod daemon;
 pub mod message;
+pub mod permission;
+pub mod prompt;
 pub mod protocol;
 pub mod render;
 pub mod state;

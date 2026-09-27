@@ -140,6 +140,9 @@ pub struct UiState {
     pub compaction: Option<String>,
     /// Streaming echo of the user's own message (agents may resend it).
     pub user_echo: Option<String>,
+    /// Prompts the user sent while a turn was still running, shown under the
+    /// input as `PromptInputQueuedCommands` does.
+    pub queued: Vec<String>,
     pub usage: Option<(u64, u64, Option<f64>)>,
     pub status: String,
     pub quit: bool,
