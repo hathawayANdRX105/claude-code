@@ -88,11 +88,20 @@ pub enum AcpEvent {
     AgentThought { text: String },
     /// A tool call started, changed, or finished.
     ToolCallUpdate {
+        /// The protocol's key for this call; updates are matched by it.
+        tool_call_id: String,
         name: Option<String>,
         title: Option<String>,
         status: Option<String>,
+        /// Coarse category ("read"/"edit"/"execute"/...), drives the icon and
+        /// the default layout when no richer content is attached.
+        kind: Option<String>,
+        /// Files the call touched, for path headings.
+        locations: Vec<String>,
         /// Flattened text of the tool's content blocks, if any.
         content_text: Option<String>,
+        /// A structured `type:"diff"` block, rendered with per-line colouring.
+        diff: Option<DiffBlock>,
     },
     /// Incremental output for an existing tool call.
     ToolCallContentChunk { text: String },
@@ -140,6 +149,16 @@ pub enum AcpEvent {
     UserMessage { text: String },
 }
 
+/// A structured diff from a `type:"diff"` content block: the affected paths
+/// plus the patch text, which the UI renders line by line.
+#[derive(Debug, Clone)]
+pub struct DiffBlock {
+    /// Absolute paths this diff changes, in `changes` order.
+    pub paths: Vec<String>,
+    /// Patch text (`git_patch`), flattened to lines.
+    pub patch: String,
+}
+
 /// Compute the default daemon socket path, matching `defaultSharedAddress()`
 /// in `src/daemon/sharedClient.ts`.
 pub fn default_socket_path() -> String {
@@ -176,19 +195,26 @@ pub fn parse_session_update(params: &serde_json::Value) -> Option<AcpEvent> {
             })
         }
         "tool_call_update" => Some(AcpEvent::ToolCallUpdate {
-            name: update
-                .get("name")
-                .and_then(|v| v.as_str())
-                .map(str::to_string),
-            title: update
-                .get("title")
-                .and_then(|v| v.as_str())
-                .map(str::to_string),
-            status: update
-                .get("status")
-                .and_then(|v| v.as_str())
-                .map(str::to_string),
+            tool_call_id: str_field(update, "toolCallId"),
+            name: opt_str_field(update, "name"),
+            title: opt_str_field(update, "title"),
+            status: opt_str_field(update, "status"),
+            kind: opt_str_field(update, "kind"),
+            locations: update
+                .get("locations")
+                .and_then(|v| v.as_array())
+                .map(|locs| {
+                    locs.iter()
+                        .filter_map(|l| l.get("path").and_then(|p| p.as_str()))
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
             content_text: tool_content_text(update.get("content")),
+            diff: update
+                .get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|blocks| blocks.iter().find_map(parse_diff_block)),
         }),
         "tool_call_content_chunk" => Some(AcpEvent::ToolCallContentChunk {
             text: tool_content_text(update.get("content")).unwrap_or_default(),
@@ -375,6 +401,7 @@ fn decode_base64(input: &str) -> String {
             // padding and whitespace end the payload
             _ => continue,
         } as u32;
+
         acc = (acc << 6) | val;
         bits += 6;
         if bits >= 8 {
@@ -434,6 +461,32 @@ fn tool_content_text(content: Option<&serde_json::Value>) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Extract a `type:"diff"` content block: the changed paths plus the patch.
+fn parse_diff_block(block: &serde_json::Value) -> Option<DiffBlock> {
+    if block.get("type").and_then(|t| t.as_str()) != Some("diff") {
+        return None;
+    }
+    let diff = block.get("diff")?;
+    let paths = diff
+        .get("changes")
+        .and_then(|v| v.as_array())
+        .map(|changes| {
+            changes
+                .iter()
+                .filter_map(|c| c.get("path").and_then(|p| p.as_str()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let patch = diff
+        .get("patch")
+        .and_then(|p| p.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
+    Some(DiffBlock { paths, patch })
 }
 
 /// Turn an agent request (`session/request_permission`) into a high level

@@ -73,7 +73,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 state::Role::Plan => "plan",
                 state::Role::Terminal => "terminal",
             };
-            out.push_str(&format!("{label} › {}\n\n", m.text));
+            // Tool messages go through the renderer, the same as the screen,
+            // so the dump cannot disagree with what was displayed.
+            let body = ui::render_message_body(&m)
+                .into_iter()
+                .map(|(text, _)| text)
+                .collect::<Vec<_>>()
+                .join("\n");
+            out.push_str(&format!("{label} › {body}\n\n"));
         }
         let _ = std::fs::write(&path, out);
     }

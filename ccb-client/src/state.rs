@@ -5,6 +5,9 @@ use crate::protocol::{AcpEvent, PermissionOption, RequestId};
 pub struct Message {
     pub role: Role,
     pub text: String,
+    /// Set for tool messages: the call itself, so the UI layer decides how to
+    /// style it and the transcript and live view cannot disagree.
+    pub tool: Option<ToolCall>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,17 +26,75 @@ pub enum Role {
 
 impl Message {
     pub fn new(role: Role, text: impl Into<String>) -> Self {
-        Self { role, text: text.into() }
+        Self { role, text: text.into(), tool: None }
+    }
+
+    /// A tool message keeps the call so the renderer can style it.
+    pub fn tool(call: ToolCall) -> Self {
+        let text = call.body_text();
+        Self { role: Role::Tool, text, tool: Some(call) }
     }
 }
 
 /// A tool call in flight or finished, accumulated by `toolCallId`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ToolCall {
+    /// The protocol's key for this call, used to match later updates.
+    pub id: String,
     pub name: String,
     pub title: Option<String>,
     pub status: Option<String>,
+    /// Coarse category from the protocol ("read"/"edit"/"execute"/...).
+    pub kind: Option<String>,
+    /// Files the call touched.
+    pub locations: Vec<String>,
     pub output: String,
+    /// Patch text from a `type:"diff"` block, rendered with line colouring.
+    pub diff: Option<String>,
+}
+
+impl ToolCall {
+    /// Flattened text for dumps and the status line. The UI renders the call
+    /// itself (see `ui::render_tool`) so diff lines keep their colour.
+    pub fn body_text(&self) -> String {
+        let label = self.title.clone().unwrap_or_else(|| self.name.clone());
+        let mut out = match &self.status {
+            Some(s) if !s.is_empty() => format!("{label}  {s}"),
+            _ => label,
+        };
+        for path in &self.locations {
+            out.push_str(&format!("\n{path}"));
+        }
+        if let Some(patch) = &self.diff {
+            if !patch.is_empty() {
+                out.push('\n');
+                out.push_str(patch);
+                return out;
+            }
+        }
+        if !self.output.is_empty() {
+            out.push('\n');
+            out.push_str(&self.output);
+        }
+        out
+    }
+}
+
+/// One rendered line with a colour role, so the UI can style diff lines and
+/// tool output without re-parsing text.
+#[derive(Clone, Debug)]
+pub struct StyledLine {
+    pub text: String,
+    pub tone: Tone,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    Normal,
+    Dim,
+    Added,
+    Removed,
+    Path,
 }
 
 /// Pending permission prompt the user must answer before the turn continues.
@@ -108,33 +169,51 @@ impl UiState {
                 self.thinking = Some(text);
             }
             AcpEvent::ToolCallUpdate {
+                tool_call_id,
                 name,
                 title,
                 status,
+                kind,
+                locations,
                 content_text,
+                diff,
             } => {
-                // ACP updates are keyed by toolCallId; the client keeps one
-                // running tool slot per turn, which is what the UI needs.
-                if let Some(tool) = self.tools.last_mut() {
-                    if let Some(n) = name {
-                        tool.name = n;
+                // ACP keys updates by toolCallId. Interleaved tools would
+                // otherwise dump their output into whichever call came last.
+                let idx = match self.tools.iter().position(|t| t.id == tool_call_id) {
+                    Some(i) => i,
+                    None => {
+                        self.tools.push(ToolCall {
+                            id: tool_call_id,
+                            ..Default::default()
+                        });
+                        self.tools.len() - 1
                     }
-                    if let Some(t) = title {
-                        tool.title = Some(t);
+                };
+                let tool = &mut self.tools[idx];
+                if let Some(n) = name {
+                    tool.name = n;
+                }
+                if let Some(t) = title {
+                    tool.title = Some(t);
+                }
+                if let Some(s) = status {
+                    tool.status = Some(s);
+                }
+                if let Some(k) = kind {
+                    tool.kind = Some(k);
+                }
+                if !locations.is_empty() {
+                    tool.locations = locations;
+                }
+                if let Some(c) = content_text {
+                    tool.output = c;
+                }
+                if let Some(d) = diff {
+                    tool.diff = Some(d.patch);
+                    if !d.paths.is_empty() {
+                        tool.locations = d.paths;
                     }
-                    if let Some(s) = status {
-                        tool.status = Some(s);
-                    }
-                    if let Some(c) = content_text {
-                        tool.output = c;
-                    }
-                } else {
-                    self.tools.push(ToolCall {
-                        name: name.unwrap_or_default(),
-                        title,
-                        status,
-                        output: content_text.unwrap_or_default(),
-                    });
                 }
                 self.follow_bottom = true;
             }
@@ -257,14 +336,10 @@ impl UiState {
         if let Some(thought) = self.thinking.take().filter(|t| !t.is_empty()) {
             self.messages.push(Message::new(Role::Thought, thought));
         }
+        // The rendered tool body is built here, once, so the transcript and
+        // the live view can never disagree about what a call showed.
         for tool in std::mem::take(&mut self.tools) {
-            let label = tool.title.unwrap_or(tool.name);
-            let body = if tool.output.is_empty() {
-                format!("{label} [{}]", tool.status.unwrap_or_default())
-            } else {
-                format!("{label} [{}]\n{}", tool.status.unwrap_or_default(), tool.output)
-            };
-            self.messages.push(Message::new(Role::Tool, body));
+            self.messages.push(Message::tool(tool));
         }
         self.busy = false;
     }
