@@ -91,33 +91,6 @@ fn thinking_line(text: &str) -> Line<'static> {
     render::line(spans)
 }
 
-/// Ported from `CompactBoundaryMessage.tsx`: the separator shown where a
-/// conversation was compacted.
-pub fn render_compact_boundary() -> Vec<Line<'static>> {
-    vec![render::line(vec![
-        render::dim(fig::HEAVY_HORIZONTAL.repeat(3)),
-        render::raw(" "),
-        render::dim("conversation compacted"),
-        render::raw(" "),
-        render::dim(fig::HEAVY_HORIZONTAL.repeat(3)),
-    ])]
-}
-
-/// Ported from `PlanApprovalMessage.tsx`: the plan the agent wants approved.
-pub fn render_plan_approval(text: &str) -> Vec<Line<'static>> {
-    let mut out = vec![render::header(
-        fig::DIAMOND_FILLED,
-        Ink::PlanMode,
-        "plan",
-        Ink::PlanMode,
-    )];
-    let mut body = render::wrap(text, Style::default().fg(Ink::Text.color()));
-    render::indent(&mut body, 1);
-    out.extend(body);
-    out.push(render::line(vec![render::dim("ctrl+o to expand")]));
-    out
-}
-
 /// The checklist a plan renders as, from the protocol's `plan_update` items.
 /// The parser already marks each entry's status in its leading bracket.
 pub fn render_plan_body(text: &str) -> Vec<Line<'static>> {
@@ -142,37 +115,6 @@ pub fn render_plan_body(text: &str) -> Vec<Line<'static>> {
             render::raw(render::INDENT),
             Span::styled(entry.to_string(), Style::default().fg(tone.color())),
         ]));
-    }
-    out
-}
-
-/// Ported from `TaskAssignmentMessage.tsx`: a task handed to a subagent.
-pub fn render_task_assignment(text: &str) -> Vec<Line<'static>> {
-    let mut out = vec![render::header(
-        fig::black_circle(),
-        Ink::Purple,
-        "task",
-        Ink::Purple,
-    )];
-    let mut body = render::wrap(text, Style::default().fg(Ink::Subtle.color()));
-    render::indent(&mut body, 1);
-    out.extend(body);
-    out
-}
-
-/// Ported from `GroupedToolUseContent.tsx`: several tool calls collapsed into
-/// one row with a count.
-pub fn render_grouped_tool_use(text: &str, count: usize) -> Vec<Line<'static>> {
-    let mut out = vec![render::header(
-        fig::DIAMOND_FILLED,
-        Ink::Subtle,
-        &format!("{count} tool calls"),
-        Ink::Subtle,
-    )];
-    if !text.is_empty() {
-        let mut body = render::wrap(text, Style::default().fg(Ink::Subtle.color()));
-        render::indent(&mut body, 1);
-        out.extend(body);
     }
     out
 }

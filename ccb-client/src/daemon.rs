@@ -222,21 +222,18 @@ fn dispatch(msg: &AgentMessage) -> AcpEvent {
             }
         }
         // A response to one of our requests (session/new etc.).
-        (_, Some(id)) => {
+        (_, Some(_id)) => {
             if let Some(result) = &msg.result {
                 if let Some(session_id) = result.get("sessionId").and_then(|v| v.as_str()) {
                     AcpEvent::SessionReady {
                         session_id: session_id.to_string(),
                     }
-                } else if id > 0 {
-                    // Some other response we don't model yet; ignore it.
-                    AcpEvent::Error {
-                        message: format!("unmodeled response to request {id}"),
-                    }
                 } else {
-                    AcpEvent::Error {
-                        message: "response with no session id".to_string(),
-                    }
+                    // A response we don't model (session/prompt completing,
+                    // for instance). The turn's completion is already driven
+                    // by state_update, so there is nothing to show and
+                    // surfacing it would put protocol noise in the transcript.
+                    AcpEvent::Ignored
                 }
             } else if let Some(err) = &msg.error {
                 AcpEvent::Error {

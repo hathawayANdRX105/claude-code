@@ -5,6 +5,11 @@ use crate::protocol::{AcpEvent, PermissionOption, RequestId};
 pub struct Message {
     pub role: Role,
     pub text: String,
+    /// A system message that is a compaction boundary rather than a notice.
+    /// `CompactBoundaryMessage.tsx` draws these differently from other system
+    /// output, so the flag lives on the message instead of being guessed from
+    /// the text.
+    pub compaction: bool,
     /// Set for tool messages: the call itself, so the UI layer decides how to
     /// style it and the transcript and live view cannot disagree.
     pub tool: Option<ToolCall>,
@@ -22,17 +27,29 @@ pub enum Role {
     Plan,
     /// A terminal's command line and output.
     Terminal,
+    /// System notices: errors, limits, shutdown, compaction.
+    System,
 }
 
 impl Message {
     pub fn new(role: Role, text: impl Into<String>) -> Self {
-        Self { role, text: text.into(), tool: None }
+        Self { role, text: text.into(), tool: None, compaction: false }
+    }
+
+    /// A compaction boundary notice.
+    pub fn compaction(summary: impl Into<String>) -> Self {
+        Self {
+            role: Role::System,
+            text: summary.into(),
+            tool: None,
+            compaction: true,
+        }
     }
 
     /// A tool message keeps the call so the renderer can style it.
     pub fn tool(call: ToolCall) -> Self {
         let text = call.body_text();
-        Self { role: Role::Tool, text, tool: Some(call) }
+        Self { role: Role::Tool, text, tool: Some(call), compaction: false }
     }
 }
 
@@ -288,7 +305,9 @@ impl UiState {
             }
             AcpEvent::CompactionUpdate { status, summary } => {
                 self.compaction = match status.as_str() {
-                    "in_progress" => Some("compacting context…".to_string()),
+                    // The in-progress notice is transient; the completed
+                    // summary is what stays in the transcript.
+                    "in_progress" => None,
                     "failed" => Some("compaction failed".to_string()),
                     "cancelled" => None,
                     _ => summary,
@@ -322,8 +341,13 @@ impl UiState {
                     selected,
                 });
             }
+            AcpEvent::Ignored => {}
             AcpEvent::Error { message } => {
-                self.status = message;
+                self.status = message.clone();
+                // Also keep it in the transcript: an error the user scrolled
+                // past should stay readable, which is what SystemTextMessage
+                // does on the TypeScript side.
+                self.messages.push(Message::new(Role::System, message));
             }
             AcpEvent::Closed => {
                 self.status = "connection closed".to_string();

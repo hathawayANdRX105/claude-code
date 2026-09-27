@@ -116,6 +116,10 @@ pub enum AcpEvent {
     RequestPermission(PermissionRequest),
     /// Something went wrong on the wire or the agent reported an error.
     Error { message: String },
+    /// A well-formed message the client has nothing to show for, such as the
+    /// response to a request whose effect is already visible. Carried as an
+    /// event so the reader thread never drops a message silently.
+    Ignored,
     /// The socket closed; no more events will arrive.
     Closed,
 

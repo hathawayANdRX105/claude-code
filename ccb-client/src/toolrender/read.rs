@@ -16,6 +16,10 @@ use crate::toolrender::shorten_path;
 /// collapsed preview's cap.
 const PREVIEW_LINES: usize = 10;
 
+/// Above this many lines the read collapses to the short form, which is what
+/// `CollapsedReadSearchContent.tsx` does for long file reads.
+const COLLAPSE_AT: usize = 40;
+
 /// Render a read call: the path, then a capped preview of the contents.
 pub fn render(call: &ToolCall) -> Vec<Line<'static>> {
     let mut out: Vec<Line<'static>> = Vec::new();
@@ -27,6 +31,11 @@ pub fn render(call: &ToolCall) -> Vec<Line<'static>> {
     }
     if call.output.is_empty() {
         return out;
+    }
+    if call.output.lines().count() > COLLAPSE_AT {
+        // Long reads get the collapsed form, the same shape
+        // CollapsedReadSearchContent.tsx renders.
+        return crate::message::tool::render_collapsed_read(&call.output);
     }
     let lines: Vec<&str> = call.output.lines().collect();
     let shown = lines.len().min(PREVIEW_LINES);

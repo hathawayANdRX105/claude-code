@@ -13,6 +13,9 @@ use crate::theme::{fig, Ink};
 /// Dispatch a system-role message. The client tags system text by its content,
 /// matching how the TSX picks a renderer from the message type.
 pub fn dispatch(text: &str) -> Vec<Line<'static>> {
+    if text.contains("compaction failed") {
+        return render_compaction_failure(text);
+    }
     if is_shutdown(text) {
         return render_shutdown(text);
     }
@@ -89,22 +92,28 @@ pub fn render_shutdown(text: &str) -> Vec<Line<'static>> {
     out
 }
 
-/// Ported from `SnipBoundaryMessage.tsx`: the marker where a transcript snip
-/// was taken.
-pub fn render_snippet_boundary() -> Vec<Line<'static>> {
-    vec![render::line(vec![render::dim("··· transcript snip")])]
+/// A failed compaction, shown as a system error.
+fn render_compaction_failure(text: &str) -> Vec<Line<'static>> {
+    vec![render::line(vec![render::colored(text.to_string(), Ink::Error)])]
 }
 
-/// Ported from `HookProgressMessage.tsx`: a hook running, with its spinner
-pub fn render_hook_progress(text: &str) -> Vec<Line<'static>> {
-    vec![render::line(vec![
-        render::colored(fig::TEARDROP_ASTERISK, Ink::Claude),
-        render::raw(" "),
-        render::dim(text.to_string()),
-    ])]
+/// The boundary shown where a conversation was compacted, with the completed
+/// summary under it. Ported from `CompactBoundaryMessage.tsx`, which reads
+/// `✻ Conversation compacted (ctrl+o for history)`.
+pub fn render_compaction(text: &str) -> Vec<Line<'static>> {
+    let mut out = vec![render::line(vec![render::dim(
+        "✻ Conversation compacted (ctrl+o for history)",
+    )])];
+    if !text.is_empty() {
+        let mut body = render::wrap(text, Style::default().fg(Ink::Subtle.color()));
+        render::indent(&mut body, 1);
+        out.extend(body);
+    }
+    out
 }
 
-
+/// A retained snip boundary, from `SnipBoundaryMessage.tsx`.
+/// A hook run, from `HookProgressMessage.tsx`.
 fn is_shutdown(text: &str) -> bool {
     text.starts_with("[Shutdown")
 }

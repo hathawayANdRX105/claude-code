@@ -22,10 +22,13 @@ pub mod user;
 /// Render any message. This replaces the type switch in `Messages.tsx`.
 pub fn render_message(m: &Message) -> Vec<Line<'static>> {
     let mut lines = match m.role {
+        // A completed compaction keeps the boundary shape.
+        Role::System if m.compaction => system::render_compaction(&m.text),
         Role::User => user::dispatch(m),
         Role::Assistant => assistant::dispatch(m),
         Role::Thought => assistant::render_assistant_thinking(m.text.as_str()),
         Role::Plan => assistant::render_plan_body(m.text.as_str()),
+        Role::System => system::dispatch(m.text.as_str()),
         Role::Terminal => render_terminal(m.text.as_str()),
         Role::Tool => match &m.tool {
             // The frame (status diamond, `⎿` gutter) is the message layer's;
@@ -107,7 +110,7 @@ fn ordered_messages(state: &UiState) -> Vec<Message> {
         }
     }
     if let Some(text) = &state.compaction {
-        out.push(Message::new(Role::Thought, text.clone()));
+        out.push(Message::compaction(text.clone()));
     }
     // Plans render after the tool calls, sorted by id for a stable order.
     let mut plan_ids: Vec<&String> = state.plans.keys().collect();

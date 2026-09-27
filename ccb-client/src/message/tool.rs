@@ -56,19 +56,6 @@ pub fn render_tool_call(call: &ToolCall) -> Vec<Line<'static>> {
     out
 }
 
-/// Ported from the top of `AssistantToolUseMessage.tsx`: the shape shown while
-/// a call is still queued and has produced nothing yet.
-pub fn render_tool_use(call: &ToolCall) -> Vec<Line<'static>> {
-    if call.output.is_empty() && call.diff.is_none() && call.locations.is_empty() {
-        return vec![render::line(vec![
-            render::colored(fig::DIAMOND_OPEN, Ink::Claude),
-            render::raw(" "),
-            render::dim("running"),
-        ])];
-    }
-    render_tool_call(call)
-}
-
 /// Ported from `CollapsedReadSearchContent.tsx`: the preview a read or search
 /// collapses to when its output is long. The full listing lives in
 /// `toolrender::read` and `toolrender::search`; this is the short form.
