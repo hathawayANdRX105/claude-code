@@ -324,8 +324,7 @@ jobs:
           CCB_DEBUG: /tmp/ccb-wire.log
         run: |
           set -euo pipefail
-          # 1. 起 daemon（dev 模式保留 shared acp 的手动 arg 分支）
-          ( bun run dev shared acp > /tmp/acp-daemon.log 2>&1 & echo $! > /tmp/acp-daemon.pid )
+          ( bun scripts/dev.ts shared acp > /tmp/acp-daemon.log 2>&1 & echo $! > /tmp/acp-daemon.pid )
           for _ in $(seq 1 60); do
             [ -S "$CLAUDE_SHARED_SOCKET" ] && break
             sleep 0.5
