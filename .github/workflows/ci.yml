@@ -318,12 +318,13 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Smoke test against live shared acp daemon
-        working-directory: ccb-client
         env:
           CLAUDE_SHARED_SOCKET: /tmp/claude-acp-ci.sock
           CCB_DEBUG: /tmp/ccb-wire.log
         run: |
           set -euo pipefail
+          # 1. 起 daemon（dev 模式保留 shared acp 的手动 arg 分支）。必须
+          # 在仓库根跑，scripts/dev.ts 与 src/ 的相对路径才解析得到。
           ( bun scripts/dev.ts shared acp > /tmp/acp-daemon.log 2>&1 & echo $! > /tmp/acp-daemon.pid )
           for _ in $(seq 1 60); do
             [ -S "$CLAUDE_SHARED_SOCKET" ] && break
@@ -334,7 +335,7 @@ jobs:
 
           # 2. 跑 client，喂一条 prompt，等握手完成。无 TTY 用 script 造一个。
           { printf 'hello'; sleep 0.3; printf '\r'; sleep 8; printf 'q'; sleep 0.5; } \
-            | script -qec "./target/release/ccb-client $CLAUDE_SHARED_SOCKET" /tmp/ccb-tui.log >/dev/null 2>&1 || true
+            | script -qec "ccb-client/target/release/ccb-client $CLAUDE_SHARED_SOCKET" /tmp/ccb-tui.log >/dev/null 2>&1 || true
 
           # 3. 断言 wire：session/new 必须被发出且收到带 sessionId 的响应
           echo "--- wire log ---"; cat "$CCB_DEBUG"
