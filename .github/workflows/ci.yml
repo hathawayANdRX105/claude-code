@@ -281,3 +281,78 @@ jobs:
           name: claude-code-npm
           path: "*.tgz"
           if-no-files-found: error
+
+  # ── ccb-client：Rust 薄 client 对 live shared acp daemon 的端到端冒烟 ──
+  # 协议层是手写 JSON-RPC，最容易在 id 关联 / 权限响应 / session/update
+  # 分发上回归，所以这里跑真 daemon 而非 mock：session/new 必须返回
+  # sessionId，session/prompt 必须被接受。LLM 调用在此环境无凭据会 403，
+  # 属预期；断言只覆盖握手与协议正确性。
+  ccb-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2, 2026-04-25
+        env:
+          GIT_CONFIG_COUNT: 2
+          GIT_CONFIG_KEY_0: init.defaultBranch
+          GIT_CONFIG_VALUE_0: main
+          GIT_CONFIG_KEY_1: advice.defaultBranchName
+          GIT_CONFIG_VALUE_1: "false"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build client
+        working-directory: ccb-client
+        run: cargo build --release
+
+      - name: Clippy (warnings as errors)
+        working-directory: ccb-client
+        run: cargo clippy --release -- -D warnings
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2, 2026-04-25
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        env:
+          CLAUDE_CODE_SKIP_CHROME_MCP_SETUP: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Smoke test against live shared acp daemon
+        working-directory: ccb-client
+        env:
+          CLAUDE_SHARED_SOCKET: /tmp/claude-acp-ci.sock
+          CCB_DEBUG: /tmp/ccb-wire.log
+        run: |
+          set -euo pipefail
+          # 1. 起 daemon（dev 模式保留 shared acp 的手动 arg 分支）
+          ( bun run dev shared acp > /tmp/acp-daemon.log 2>&1 & echo $! > /tmp/acp-daemon.pid )
+          for _ in $(seq 1 60); do
+            [ -S "$CLAUDE_SHARED_SOCKET" ] && break
+            sleep 0.5
+          done
+          [ -S "$CLAUDE_SHARED_SOCKET" ] || { echo "daemon never listened"; cat /tmp/acp-daemon.log; exit 1; }
+          echo "  ✓ daemon listening on $CLAUDE_SHARED_SOCKET"
+
+          # 2. 跑 client，喂一条 prompt，等握手完成。无 TTY 用 script 造一个。
+          { printf 'hello'; sleep 0.3; printf '\r'; sleep 8; printf 'q'; sleep 0.5; } \
+            | script -qec "./target/release/ccb-client $CLAUDE_SHARED_SOCKET" /tmp/ccb-tui.log >/dev/null 2>&1 || true
+
+          # 3. 断言 wire：session/new 必须被发出且收到带 sessionId 的响应
+          echo "--- wire log ---"; cat "$CCB_DEBUG"
+          grep -q '"method":"initialize"' "$CCB_DEBUG" || { echo "missing initialize request"; exit 1; }
+          grep -q '"sessionId"' "$CCB_DEBUG" || { echo "daemon never returned a sessionId"; exit 1; }
+          grep -q '"method":"session/prompt"' "$CCB_DEBUG" || { echo "missing session/prompt request"; exit 1; }
+          echo "  ✓ initialize → session/new → sessionId, session/prompt sent"
+
+          kill "$(cat /tmp/acp-daemon.pid)" 2>/dev/null || true
+
+      - name: Upload wire + TUI logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ccb-client-logs
+          path: |
+            /tmp/ccb-wire.log
+            /tmp/ccb-tui.log
+            /tmp/acp-daemon.log
+          if-no-files-found: ignore
