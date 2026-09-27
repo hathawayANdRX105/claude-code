@@ -77,14 +77,12 @@ export async function startAcpSharedServer(address: string): Promise<Server> {
       console.error('acp shared: socket error', error)
     })
 
-    // Give up only the sessions this client took, then let the shared store
-    // decide their fate: with another terminal still attached they stay put,
-    // otherwise they start the idle countdown. Closing every session here would
-    // kill conversations other clients are still using.
+    // The socket closing ends only this client's agent; sessions live in the
+    // shared store and outlive the connection (another terminal may still be
+    // attached), so we destroy the socket and let the store decide.
     void connection.closed
       .catch(() => undefined)
       .finally(() => {
-        agent.detachSessions()
         socket.destroy()
       })
   })
