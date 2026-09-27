@@ -66,3 +66,7 @@ vendor/token-counter/**/*.node
 vendor/transcript-parser/**/*.node
 vendor/color-diff/**/*.node
 vendor/file-index/**/*.node
+
+# Local agent worktrees and the codegraph index
+.wt/
+.codegraph/
