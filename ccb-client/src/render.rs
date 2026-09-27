@@ -30,6 +30,11 @@ pub fn colored(s: impl Into<String>, ink: Ink) -> Span<'static> {
     Span::styled(s.into(), Style::default().fg(ink.color()))
 }
 
+/// A span with no styling, for connecting glyphs and spaces.
+pub fn raw(s: impl Into<String>) -> Span<'static> {
+    Span::raw(s.into())
+}
+
 /// A dimmed span, equivalent to Ink's `<Text dimColor>`.
 pub fn dim(s: impl Into<String>) -> Span<'static> {
     Span::styled(s.into(), Style::default().fg(Ink::Dim.color()))
