@@ -217,16 +217,39 @@ pub fn change_summary(patch: &str) -> Line<'static> {
 }
 
 /// Render a diff body to lines, with the gutter the color-diff module uses.
+/// Adjacent deletion/addition runs get a word-level highlight, as
+/// `ColorDiff::render` does via `find_adjacent_pairs`.
 pub fn render_diff(patch: &str) -> Vec<Line<'static>> {
     let entries = parse_hunk(patch);
     if entries.is_empty() {
         return Vec::new();
     }
     let digits = max_digits(&entries);
-    entries.iter().map(|e| render_entry(e, digits)).collect()
+    let markers: Vec<Marker> = entries.iter().map(|e| e.marker).collect();
+    // Word ranges for the pairs, computed once and indexed by entry.
+    let mut ranges: Vec<Option<Vec<Range>>> = vec![None; entries.len()];
+    for (del_idx, add_idx) in find_adjacent_pairs(&markers) {
+        let (del_r, add_r) =
+            word_diff_ranges(&entries[del_idx].code, &entries[add_idx].code);
+        if !del_r.is_empty() {
+            ranges[del_idx] = Some(del_r);
+        }
+        if !add_r.is_empty() {
+            ranges[add_idx] = Some(add_r);
+        }
+    }
+    entries
+        .iter()
+        .enumerate()
+        .map(|(i, e)| render_entry(e, digits, ranges[i].as_deref()))
+        .collect()
 }
 
-fn render_entry(e: &Entry, digits: usize) -> Line<'static> {
+fn render_entry(
+    e: &Entry,
+    digits: usize,
+    word: Option<&[Range]>,
+) -> Line<'static> {
     let deco = Style::default().fg(decoration_color(e.marker));
     let bg = line_background(e.marker);
     let number = format!("{:>digits$} ", e.line_number.max(0), digits = digits);
@@ -249,22 +272,152 @@ fn render_entry(e: &Entry, digits: usize) -> Line<'static> {
     spans.push(Span::styled(marker_ch, deco));
     spans.push(Span::raw(" "));
 
-    // The code itself sits on the line background; deletions also dim their
-    // content, as the ANSI path does.
-    let code_style = Style::default().fg(foreground()).bg(bg);
-    let code_style = if e.marker == Marker::Del {
-        code_style.add_modifier(Modifier::DIM)
+    // The code sits on the line background; deletions also dim their content,
+    // as the ANSI path does. A word range gets the stronger word background
+    // on top, which is what makes a one-token change legible.
+    let base = Style::default().fg(foreground()).bg(bg);
+    let base = if e.marker == Marker::Del {
+        base.add_modifier(Modifier::DIM)
     } else {
-        code_style
+        base
     };
-    spans.push(Span::styled(e.code.clone(), code_style));
+    match word.and_then(|r| r.first()).copied() {
+        Some(range) => {
+            for (text, colour) in apply_word_bg(&e.code, range, word_background(e.marker)) {
+                let mut st = base.bg(if colour == Color::Reset { bg } else { colour });
+                if text.is_empty() {
+                    continue;
+                }
+                if e.marker == Marker::Del {
+                    st = st.add_modifier(Modifier::DIM);
+                }
+                spans.push(Span::styled(text, st));
+            }
+        }
+        None => spans.push(Span::styled(e.code.clone(), base)),
+    }
     render::line(spans)
 }
+/// Byte offsets of a changed span within a line's code.
+pub type Range = (usize, usize);
 
-/// Highlight a range inside a line with the word background, used when a
-/// deletion and an addition sit next to each other. The color-diff module does
-/// a word-level diff for those pairs; this exposes the colour it uses so
-/// callers can apply it to the spans they build.
-pub fn word_highlight_style(m: Marker) -> Style {
-    Style::default().fg(foreground()).bg(word_background(m))
+/// The word-level ranges that changed between a deleted and an added line. Ported from
+/// `word_diff_strings` in the color-diff module: tokenize into words carrying
+/// their trailing whitespace, then keep the common prefix and suffix and
+/// highlight what is left.
+pub fn word_diff_ranges(old: &str, new: &str) -> (Vec<Range>, Vec<Range>) {
+    let old_tokens = tokenize(old);
+    let new_tokens = tokenize(new);
+    let (pre, _) = common_prefix_len(&old_tokens, &new_tokens);
+    let (suf, _) = common_suffix_len(&old_tokens, &new_tokens);
+    // Guard against overlap when the whole line is one common run.
+    let suf = suf.min(old_tokens.len().saturating_sub(pre));
+    let suf = suf.min(new_tokens.len().saturating_sub(pre));
+
+    let old_changed: usize = old_tokens[pre..old_tokens.len() - suf]
+        .iter()
+        .map(|t| t.len())
+        .sum();
+    let new_changed: usize = new_tokens[pre..new_tokens.len() - suf]
+        .iter()
+        .map(|t| t.len())
+        .sum();
+    if old_changed == 0 || new_changed == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    // A change covering most of both lines is noise, not a word diff; the
+    // original skips it for the same reason.
+    if (old_changed + new_changed) * 2 > old.len() + new.len() {
+        return (vec![(0, old.len())], vec![(0, new.len())]);
+    }
+
+    let old_start = token_offset(&old_tokens, pre);
+    let new_start = token_offset(&new_tokens, pre);
+    let old_end = old_start + old_changed;
+    let new_end = new_start + new_changed;
+    (vec![(old_start, old_end)], vec![(new_start, new_end)])
+}
+
+/// Split into runs of words and runs of whitespace, so the tokens rebuild the
+/// line exactly.
+fn tokenize(text: &str) -> Vec<&str> {
+    let mut out: Vec<&str> = Vec::new();
+    let mut start = 0usize;
+    let mut in_ws = false;
+    for (i, c) in text.char_indices() {
+        let ws = c.is_whitespace();
+        if i > start && ws != in_ws {
+            out.push(&text[start..i]);
+            start = i;
+        }
+        in_ws = ws;
+    }
+    if start < text.len() {
+        out.push(&text[start..]);
+    }
+    out
+}
+
+fn common_prefix_len(a: &[&str], b: &[&str]) -> (usize, usize) {
+    let n = a.iter().zip(b.iter()).take_while(|(x, y)| x == y).count();
+    (n, n)
+}
+
+fn common_suffix_len(a: &[&str], b: &[&str]) -> (usize, usize) {
+    let n = a
+        .iter()
+        .rev()
+        .zip(b.iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    (n, n)
+}
+
+fn token_offset(tokens: &[&str], idx: usize) -> usize {
+    tokens[..idx].iter().map(|t| t.len()).sum()
+}
+
+/// Pair each run of deletions with the run of additions that follows it, the
+/// way `find_adjacent_pairs` does, so their word ranges can be matched up.
+fn find_adjacent_pairs(markers: &[Marker]) -> Vec<(usize, usize)> {
+    let mut pairs = Vec::new();
+    let mut i = 0usize;
+    while i < markers.len() {
+        if markers[i] != Marker::Del {
+            i += 1;
+            continue;
+        }
+        let del_start = i;
+        while i < markers.len() && markers[i] == Marker::Del {
+            i += 1;
+        }
+        let del_end = i;
+        let add_start = i;
+        while i < markers.len() && markers[i] == Marker::Add {
+            i += 1;
+        }
+        let add_end = i;
+        if del_end > del_start && add_end > add_start {
+            pairs.push((del_start, add_start));
+        }
+    }
+    pairs
+}
+
+/// Apply a word range's background to the matching slice of the code.
+fn apply_word_bg(code: &str, range: Range, bg: Color) -> Vec<(String, Color)> {
+    let (start, end) = range;
+    let (start, end) = (start.min(code.len()), end.min(code.len()));
+    if start >= end {
+        return vec![(code.to_string(), Color::Reset)];
+    }
+    let mut out = Vec::new();
+    if start > 0 {
+        out.push((code[..start].to_string(), Color::Reset));
+    }
+    out.push((code[start..end].to_string(), bg));
+    if end < code.len() {
+        out.push((code[end..].to_string(), Color::Reset));
+    }
+    out
 }
