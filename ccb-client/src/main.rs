@@ -35,7 +35,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             state.status = String::new();
         }
         Err(e) => {
-            state.status = format!("session/new failed: {e}");
+            // daemon.rs already prefixes the operation that failed.
+            state.status = e.to_string();
         }
     }
 
