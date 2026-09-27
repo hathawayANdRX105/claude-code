@@ -58,6 +58,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     execute!(term.backend_mut(), terminal::LeaveAlternateScreen)?;
+
+    // Verification dump: write the transcript exactly as the UI rendered it.
+    if let Ok(path) = std::env::var("CCB_DUMP") {
+        let mut out = String::new();
+        for (role, text) in state.dump_transcript() {
+            let label = match role {
+                state::Role::User => "you",
+                state::Role::Assistant => "assistant",
+                state::Role::Thought => "thinking",
+                state::Role::Tool => "tool",
+            };
+            out.push_str(&format!("{label} › {text}\n\n"));
+        }
+        let _ = std::fs::write(&path, out);
+    }
     terminal::disable_raw_mode()?;
     Ok(())
 }

@@ -214,4 +214,27 @@ impl UiState {
         };
     }
 
+    /// The transcript exactly as the UI renders it (live tail included), for
+    /// verification dumps.
+    pub fn dump_transcript(&self) -> Vec<(Role, String)> {
+        let mut out: Vec<(Role, String)> =
+            self.messages.iter().map(|m| (m.role, m.text.clone())).collect();
+        if let Some(s) = &self.streaming {
+            if !s.is_empty() { out.push((Role::Assistant, s.clone())); }
+        }
+        if let Some(t) = &self.thinking {
+            if !t.is_empty() { out.push((Role::Thought, t.clone())); }
+        }
+        for tool in &self.tools {
+            let label = tool.title.clone().unwrap_or(tool.name.clone());
+            let body = if tool.output.is_empty() {
+                format!("{label} [{}]", tool.status.as_deref().unwrap_or(""))
+            } else {
+                format!("{label} [{}]\n{}", tool.status.as_deref().unwrap_or(""), tool.output)
+            };
+            out.push((Role::Tool, body));
+        }
+        out
+    }
+
 }

@@ -87,7 +87,7 @@ impl AcpClient {
         self.request(
             "initialize",
             serde_json::json!({
-                "protocolVersion": 20250701,
+                "protocolVersion": 2,
                 "clientCapabilities": {},
             }),
         )?;
