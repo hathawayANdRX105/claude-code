@@ -138,6 +138,34 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Full-agent shared process: one resident process serving AcpAgent to every
+  // connecting client, so N terminals share one runtime and one module graph.
+  // Sits beside `shared serve` (the minimal protocol) rather than replacing it;
+  // both retire together once this path is proven (spec 0002 migration plan).
+  if (args[0] === 'shared' && args[1] === 'acp') {
+    const address = process.env.CLAUDE_SHARED_SOCKET;
+    const { startAcpSharedServer, stopAcpSharedServer, writeSharedLock } = await import('../daemon/acpSharedServer.js');
+    const { defaultSharedAddress } = await import('../daemon/sharedClient.js');
+    const target = address ?? defaultSharedAddress();
+    const server = await startAcpSharedServer(target);
+    try {
+      await writeSharedLock(target);
+    } catch (error) {
+      await stopAcpSharedServer(server, target).catch(() => undefined);
+      throw error;
+    }
+    console.log(`listening ${target}`);
+    // Stay resident across client disconnects: exiting here would defeat the
+    // whole point, since the next terminal would pay for a fresh process.
+    const shutdown = async (): Promise<void> => {
+      await stopAcpSharedServer(server, target).catch(() => undefined);
+      process.exit(0);
+    };
+    process.on('SIGINT', () => void shutdown());
+    process.on('SIGTERM', () => void shutdown());
+    return;
+  }
+
   // For all other paths, load the startup profiler
   const { profileCheckpoint, profileReport } = await import('../utils/startupProfiler.js');
   profileCheckpoint('cli_entry');

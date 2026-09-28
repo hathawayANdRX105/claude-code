@@ -1,0 +1,23 @@
+[package]
+name = "ccb-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "ccb_client"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ccb-client"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 2
+lto = true
