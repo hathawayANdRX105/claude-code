@@ -127,9 +127,28 @@ pub struct PendingPermission {
     pub selected: usize,
 }
 
+/// One thing the agent produced, kept in arrival order.
+///
+/// The REPL renders a single stream: whatever arrives next appears below
+/// whatever arrived before it. Holding thinking, tool calls and text in
+/// separate fields loses that order, so they live in one list instead.
+#[derive(Clone, Debug)]
+pub enum TurnItem {
+    /// A committed message (the user's prompt, a system notice).
+    Message(Message),
+    /// The assistant's visible text, growing as chunks arrive.
+    Assistant(String),
+    /// The assistant's reasoning, growing as chunks arrive.
+    Thinking(String),
+    /// A tool call, updated in place by its `toolCallId`.
+    Tool(ToolCall),
+}
+
 /// Everything the TUI renders and the input buffer state.
 #[derive(Default)]
 pub struct UiState {
+    /// The agent's output in arrival order; the transcript is exactly this.
+    pub turn: Vec<TurnItem>,
     pub messages: Vec<Message>,
     pub input: String,
     /// Up/down arrow history; `history_pos` is an index from the end.
@@ -137,11 +156,6 @@ pub struct UiState {
     pub history_pos: usize,
     pub session_id: Option<String>,
     pub busy: bool,
-    /// Accumulated assistant text for the message currently streaming.
-    pub streaming: Option<String>,
-    /// Accumulated thinking for the current turn.
-    pub thinking: Option<String>,
-    pub tools: Vec<ToolCall>,
     /// The agent's current run state ("running"/"idle"/"requires_action").
     pub agent_state: String,
     /// Rendered plan bodies keyed by plan id, shown above the transcript tail.
@@ -167,7 +181,27 @@ pub struct UiState {
     pub follow_bottom: bool,
 }
 
+/// Which streaming item a chunk belongs to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    Assistant,
+    Thinking,
+}
+
+/// A mutable reference to the streaming item of the given kind, but only when
+/// it is the most recent thing the agent produced. A chunk after a tool call
+/// starts a new block: the agent thought, then acted, then thought again, and
+/// the transcript should show three things in that order, not two merged.
+fn last_slot(turn: &mut [TurnItem], want: Slot) -> Option<&mut String> {
+    match turn.last_mut()? {
+        TurnItem::Assistant(s) if want == Slot::Assistant => Some(s),
+        TurnItem::Thinking(s) if want == Slot::Thinking => Some(s),
+        _ => None,
+    }
+}
+
 impl UiState {
+
     /// Apply one protocol event to the view state.
     pub fn apply(&mut self, event: AcpEvent) {
         match event {
@@ -175,19 +209,34 @@ impl UiState {
                 self.session_id = Some(session_id);
             }
             AcpEvent::AgentMessageChunk { text, .. } => {
-                self.streaming.get_or_insert_with(String::new).push_str(&text);
+                // Extend the most recent assistant item, or start one, so
+                // chunks and the tools between them keep their arrival order.
+                match last_slot(&mut self.turn, Slot::Assistant) {
+                    Some(slot) => slot.push_str(&text),
+                    None => self.turn.push(TurnItem::Assistant(text)),
+                }
                 self.follow_bottom = true;
             }
             AcpEvent::AgentMessage { text, .. } => {
-                // Final message supersedes the chunks.
-                self.streaming = Some(text);
+                // The final message replaces the chunks in the same slot.
+                match last_slot(&mut self.turn, Slot::Assistant) {
+                    Some(slot) => *slot = text,
+                    None => self.turn.push(TurnItem::Assistant(text)),
+                }
                 self.finish_turn();
             }
             AcpEvent::AgentThoughtChunk { text, .. } => {
-                self.thinking.get_or_insert_with(String::new).push_str(&text);
+                match last_slot(&mut self.turn, Slot::Thinking) {
+                    Some(slot) => slot.push_str(&text),
+                    None => self.turn.push(TurnItem::Thinking(text)),
+                }
+                self.follow_bottom = true;
             }
             AcpEvent::AgentThought { text, .. } => {
-                self.thinking = Some(text);
+                match last_slot(&mut self.turn, Slot::Thinking) {
+                    Some(slot) => *slot = text,
+                    None => self.turn.push(TurnItem::Thinking(text)),
+                }
             }
             AcpEvent::ToolCallUpdate {
                 tool_call_id,
@@ -201,17 +250,22 @@ impl UiState {
             } => {
                 // ACP keys updates by toolCallId. Interleaved tools would
                 // otherwise dump their output into whichever call came last.
-                let idx = match self.tools.iter().position(|t| t.id == tool_call_id) {
-                    Some(i) => i,
+                let tool = match self.turn.iter_mut().find_map(|item| match item {
+                    TurnItem::Tool(t) if t.id == tool_call_id => Some(t),
+                    _ => None,
+                }) {
+                    Some(t) => t,
                     None => {
-                        self.tools.push(ToolCall {
+                        self.turn.push(TurnItem::Tool(ToolCall {
                             id: tool_call_id,
                             ..Default::default()
-                        });
-                        self.tools.len() - 1
+                        }));
+                        match self.turn.last_mut() {
+                            Some(TurnItem::Tool(t)) => t,
+                            _ => unreachable!("just pushed a tool"),
+                        }
                     }
                 };
-                let tool = &mut self.tools[idx];
                 if let Some(n) = name {
                     tool.name = n;
                 }
@@ -239,7 +293,7 @@ impl UiState {
                 self.follow_bottom = true;
             }
             AcpEvent::ToolCallContentChunk { text, .. } => {
-                if let Some(tool) = self.tools.last_mut() {
+                if let Some(tool) = self.last_tool_mut() {
                     tool.output.push_str(&text);
                 }
                 self.follow_bottom = true;
@@ -356,20 +410,18 @@ impl UiState {
         }
     }
 
-    /// A turn finished: commit streaming + thinking + tools into the transcript.
+    /// A turn finished. Every item is already in `turn` in arrival order and
+    /// already rendered, so there is nothing to commit or reorder.
     pub fn finish_turn(&mut self) {
-        if let Some(text) = self.streaming.take().filter(|t| !t.is_empty()) {
-            self.messages.push(Message::new(Role::Assistant, text));
-        }
-        if let Some(thought) = self.thinking.take().filter(|t| !t.is_empty()) {
-            self.messages.push(Message::new(Role::Thought, thought));
-        }
-        // The rendered tool body is built here, once, so the transcript and
-        // the live view can never disagree about what a call showed.
-        for tool in std::mem::take(&mut self.tools) {
-            self.messages.push(Message::tool(tool));
-        }
         self.busy = false;
+    }
+
+    /// The most recent tool call, for appending streamed output to.
+    fn last_tool_mut(&mut self) -> Option<&mut ToolCall> {
+        self.turn.iter_mut().rev().find_map(|item| match item {
+            TurnItem::Tool(t) => Some(t),
+            _ => None,
+        })
     }
 
 
@@ -385,12 +437,11 @@ impl UiState {
 
     /// Record a submitted user prompt and open the streaming slot.
     pub fn submit(&mut self, prompt: String) {
+        self.turn.push(TurnItem::Message(Message::new(Role::User, prompt.clone())));
         self.messages.push(Message::new(Role::User, prompt.clone()));
         self.history.push(prompt);
         self.history_pos = 0;
-        self.streaming = Some(String::new());
-        self.thinking = None;
-        self.tools.clear();
+
         self.permission = None;
         self.busy = true;
         self.follow_bottom = true;

@@ -8,7 +8,7 @@
 use ratatui::text::Line;
 
 use crate::render;
-use crate::state::{Message, Role, UiState};
+use crate::state::{Message, Role, TurnItem, UiState};
 use crate::theme::{fig, Ink};
 
 // The per-type renderers are the port of `src/components/messages/`. They are
@@ -77,22 +77,28 @@ pub fn render_transcript(state: &UiState) -> Vec<Vec<Line<'static>>> {
     out
 }
 
-/// The messages in the order the REPL shows them: committed history, then the
-/// live streaming assistant text, thinking, and in-flight tool calls.
+/// The transcript, in arrival order.
+///
+/// `state.turn` is appended as events arrive, so this is a straight walk: the
+/// thinking that came after a tool call renders below it, and the thinking
+/// that came before renders above. Nothing is regrouped by kind.
 fn ordered_messages(state: &UiState) -> Vec<Message> {
-    let mut out: Vec<Message> = state.messages.clone();
-    if let Some(s) = &state.streaming {
-        if !s.is_empty() {
-            out.push(Message::new(Role::Assistant, s.clone()));
+    let mut out: Vec<Message> = Vec::new();
+    for item in &state.turn {
+        match item {
+            TurnItem::Message(m) => out.push(m.clone()),
+            TurnItem::Assistant(text) => {
+                if !text.is_empty() {
+                    out.push(Message::new(Role::Assistant, text.clone()));
+                }
+            }
+            TurnItem::Thinking(text) => {
+                if !text.is_empty() {
+                    out.push(Message::new(Role::Thought, text.clone()));
+                }
+            }
+            TurnItem::Tool(call) => out.push(Message::tool(call.clone())),
         }
-    }
-    if let Some(t) = &state.thinking {
-        if !t.is_empty() {
-            out.push(Message::new(Role::Thought, t.clone()));
-        }
-    }
-    for tool in &state.tools {
-        out.push(Message::tool(tool.clone()));
     }
     if let Some(text) = &state.user_echo {
         let is_echo = out
@@ -112,7 +118,7 @@ fn ordered_messages(state: &UiState) -> Vec<Message> {
     if let Some(text) = &state.compaction {
         out.push(Message::compaction(text.clone()));
     }
-    // Plans render after the tool calls, sorted by id for a stable order.
+    // Plans follow the turn they belong to, sorted by id for a stable order.
     let mut plan_ids: Vec<&String> = state.plans.keys().collect();
     plan_ids.sort();
     for id in plan_ids {

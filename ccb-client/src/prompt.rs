@@ -8,7 +8,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, Wrap};
 
 use crate::render;
 use crate::state::UiState;
@@ -56,12 +56,20 @@ pub fn render_input(state: &UiState) -> Vec<Line<'static>> {
     out
 }
 
-/// Draw the input area with the REPL's `promptBorder` box.
+/// Draw the input area. The REPL's box has no left, right or top border, only
+/// a bottom one (`borderLeft={false} borderRight={false} borderBottom` in
+/// `PromptInput.tsx`), so it is one content row plus one border row.
 pub fn draw(frame: &mut ratatui::Frame, state: &UiState, area: Rect) {
-    let widget = Paragraph::new(render_input(state))
-        .block(Block::bordered().border_style(
-            Style::default().fg(Ink::PromptBorder.color()),
-        ))
-        .wrap(Wrap { trim: true });
-    frame.render_widget(widget, area);
+    let inner = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
+    frame.render_widget(Paragraph::new(render_input(state)).wrap(Wrap { trim: true }), inner);
+
+    let border_y = area.y + area.height.saturating_sub(1);
+    if area.height < 2 {
+        return;
+    }
+    let border = Line::from(Span::styled(
+        "─".repeat(area.width as usize),
+        Style::default().fg(Ink::PromptBorder.color()),
+    ));
+    frame.render_widget(Paragraph::new(border), Rect::new(area.x, border_y, area.width, 1));
 }

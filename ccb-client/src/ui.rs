@@ -13,22 +13,30 @@ use crate::theme::Ink;
 /// Draw the whole screen: transcript, permission overlay, input, status.
 pub fn render(frame: &mut Frame, state: &UiState) {
     let area = frame.area();
+    // Mirrors FullscreenLayout.tsx: the transcript takes the remaining space
+    // and the prompt is pinned to the bottom, two rows (content + the bottom
+    // border the REPL draws). The permission pane is a bottom-anchored row of
+    // its own, drawn over the transcript rather than replacing it.
+    let mut constraints = vec![Constraint::Min(3)];
+    if let Some(p) = &state.permission {
+        constraints.push(Constraint::Length(permission::height(p, area.height)));
+    }
+    constraints.push(Constraint::Length(2));
+    constraints.push(Constraint::Length(1));
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(3),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
+        .constraints(constraints)
         .split(area);
 
-    draw_transcript(frame, state, chunks[0]);
-    prompt::draw(frame, state, chunks[1]);
-    draw_status(frame, state, chunks[2]);
-
+    let mut next = 0usize;
+    draw_transcript(frame, state, chunks[next]);
+    next += 1;
     if let Some(p) = &state.permission {
-        permission::draw(frame, p, area);
+        permission::draw(frame, p, chunks[next]);
+        next += 1;
     }
+    prompt::draw(frame, state, chunks[next]);
+    draw_status(frame, state, chunks[next + 1]);
 }
 
 fn draw_transcript(frame: &mut Frame, state: &UiState, area: Rect) {

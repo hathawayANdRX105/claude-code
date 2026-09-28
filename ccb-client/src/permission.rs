@@ -9,11 +9,11 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, Wrap};
 
 use crate::render;
 use crate::state::PendingPermission;
-use crate::theme::Ink;
+use crate::theme::{fig, Ink};
 
 /// The prompt character the REPL uses for the input and for selected options,
 /// from `PromptInputModeIndicator.tsx` and `UserCommandMessage.tsx`.
@@ -96,26 +96,38 @@ fn option_tone(kind: &str, _selected: bool) -> Ink {
     }
 }
 
-/// Draw the dialog centred over the transcript, with the permission-coloured
-/// border `PermissionDialog.tsx` uses.
-pub fn draw(frame: &mut ratatui::Frame, p: &PendingPermission, area: Rect) {
-    let body = render_permission(p);
-    let width = 64.min(area.width);
-    let height = (body.len() as u16 + 2).min(area.height);
-    let x = area.x + (area.width.saturating_sub(width)) / 2;
-    let y = area.y + (area.height.saturating_sub(height)) / 2;
-    let rect = Rect::new(x, y, width, height);
+/// How many rows the pane needs: the `▔` rule plus its body, capped so it can
+/// never crowd out the transcript.
+pub fn height(p: &PendingPermission, available: u16) -> u16 {
+    // `MODAL_TRANSCRIPT_PEEK` in FullscreenLayout.tsx keeps two rows of
+    // transcript visible above the rule.
+    const PEEK: u16 = 2;
+    let want = render_permission(p).len() as u16 + 1;
+    want.min(available.saturating_sub(PEEK))
+}
 
-    frame.render_widget(Clear, rect);
-    let widget = Paragraph::new(body)
-        .block(
-            Block::bordered()
-                .border_style(Style::default().fg(Ink::Permission.color()))
-                .title(Span::styled(
-                    " permission ",
-                    Style::default().fg(Ink::Permission.color()),
-                )),
-        )
-        .wrap(Wrap { trim: true });
-    frame.render_widget(widget, rect);
+/// Draw the permission pane the way `FullscreenLayout.tsx` does: a `▔` rule in
+/// the theme's permission colour, the body indented two columns below it. It
+/// is a row in the column rather than an overlay, so the transcript above and
+/// the prompt below both stay visible.
+pub fn draw(frame: &mut ratatui::Frame, p: &PendingPermission, area: Rect) {
+    if area.height == 0 {
+        return;
+    }
+    let body = render_permission(p);
+    let rule = Line::from(Span::styled(
+        fig::HEAVY_HORIZONTAL.repeat(area.width as usize),
+        Style::default().fg(Ink::Permission.color()),
+    ));
+    frame.render_widget(Paragraph::new(rule), Rect::new(area.x, area.y, area.width, 1));
+
+    if area.height < 2 {
+        return;
+    }
+    let rows = (area.height as usize - 1).min(body.len());
+    let inner = Rect::new(area.x + 2, area.y + 1, area.width.saturating_sub(4), rows as u16);
+    frame.render_widget(
+        Paragraph::new(body[..rows].to_vec()).wrap(Wrap { trim: true }),
+        inner,
+    );
 }
