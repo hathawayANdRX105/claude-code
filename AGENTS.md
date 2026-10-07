@@ -1,13 +1,11 @@
-<!-- managed by canon agents.yaml @ 2026-09-24 -->
+<!-- managed by canon agents.yaml @ 2026-10-08 -->
 ## claude-code 约定
 
-This file provides guidance to Claude Code (claude.ai/code) and other AI coding agents when working with code in this repository.
-
-#### Project Overview
+### Project Overview
 
 This is a **reverse-engineered / decompiled** version of Anthropic's official Claude Code CLI tool. The goal is to restore core functionality while trimming secondary capabilities. Many modules are stubbed or feature-flagged off. TypeScript strict mode is enforced — **`bun run precheck` 必须零错误通过**（包含 typecheck + lint fix + test）。
 
-#### Git Commit Message Convention
+### Git Commit Message Convention
 
 使用 **Conventional Commits** 规范：
 
@@ -22,60 +20,60 @@ This is a **reverse-engineered / decompiled** version of Anthropic's official Cl
 - `fix: 修复初次登陆的校验问题`
 - `chore: remove prefetchOfficialMcpUrls call on startup`
 
-#### Commands
+### Commands
 
 ```bash
-### Install dependencies
+# Install dependencies
 bun install
 
-### Dev mode (runs cli.tsx with MACRO defines injected via -d flags)
+# Dev mode (runs cli.tsx with MACRO defines injected via -d flags)
 bun run dev
 
-### Dev mode with debugger (set BUN_INSPECT=9229 to pick port)
+# Dev mode with debugger (set BUN_INSPECT=9229 to pick port)
 bun run dev:inspect
 
-### Pipe mode
+# Pipe mode
 echo "say hello" | bun run src/entrypoints/cli.tsx -p
 
-### Build (code splitting, outputs dist/cli.js + chunk files)
+# Build (code splitting, outputs dist/cli.js + chunk files)
 bun run build
 
-### Build with Vite (alternative build pipeline)
+# Build with Vite (alternative build pipeline)
 bun run build:vite
 
-### Test
+# Test
 bun test                                    # run all tests
 bun test src/utils/__tests__/hash.test.ts   # run single file
 bun test --coverage                         # with coverage report
 
-### Lint & Format (Biome) — 日常开发用 precheck 代替单独调用
+# Lint & Format (Biome) — 日常开发用 precheck 代替单独调用
 bun run lint              # lint check (全项目)
 bun run lint:fix          # auto-fix lint issues
 bun run format            # format all (全项目)
 bun run check             # lint + format check (全项目)
 bun run check:fix         # lint + format auto-fix
 
-### Health check
+# Health check
 bun run health
 
-### Check unused exports
+# Check unused exports
 bun run check:unused
 
-### Full check (typecheck + lint fix + test) — 任务完成后必须运行
+# Full check (typecheck + lint fix + test) — 任务完成后必须运行
 bun run precheck
 
-### Remote Control Server
+# Remote Control Server
 bun run rcs
 
-### Docs dev server (Mintlify)
+# Docs dev server (Mintlify)
 bun run docs:dev
 ```
 
 详细的测试规范、覆盖状态和改进计划见 `docs/testing-spec.md`。
 
-#### Architecture
+### Architecture
 
-##### Runtime & Build
+#### Runtime & Build
 
 - **Runtime**: Bun (not Node.js). All imports, builds, and execution use Bun APIs.
 - **Build**: `build.ts` 执行 `Bun.build()` with `splitting: true`，入口 `src/entrypoints/cli.tsx`，输出 `dist/cli.js` + chunk files。Build 默认启用 19 个 feature（见下方 Feature Flag 段）。构建后自动替换 `import.meta.require` 为 Node.js 兼容版本（产物 bun/node 都可运行）。构建时会将 `vendor/audio-capture/` 和 `src/utils/vendor/ripgrep/` 复制到 `dist/vendor/` 下。
@@ -91,7 +89,7 @@ bun run docs:dev
 - **Defines**: 集中管理在 `scripts/defines.ts`。版本号从 `package.json` 读取（不再硬编码）。
 - **CI**: GitHub Actions — `ci.yml`（lint + 构建 + 测试）、`release-rcs.yml`（RCS 发布）、`update-contributors.yml`（自动更新贡献者）。
 
-##### Entry & Bootstrap
+#### Entry & Bootstrap
 
 1. **`src/entrypoints/cli.tsx`** — True entrypoint。`main()` 函数按优先级处理多条快速路径：
    - `--version` / `-v` — 零模块加载
@@ -109,19 +107,19 @@ bun run docs:dev
 2. **`src/main.tsx`** (~5674 行) — Commander.js CLI definition。注册大量 subcommands：`mcp` (serve/add/remove/list...)、`server`、`ssh`、`open`、`auth`、`plugin`、`agents`、`auto-mode`、`doctor`、`update` 等。主 `.action()` 处理器负责权限、MCP、会话恢复、REPL/Headless 模式分发。
 3. **`src/entrypoints/init.ts`** — One-time initialization (telemetry, config, trust dialog)。
 
-##### Core Loop
+#### Core Loop
 
 - **`src/query.ts`** — The main API query function. Sends messages to Claude API, handles streaming responses, processes tool calls, and manages the conversation turn loop.
 - **`src/QueryEngine.ts`** — Higher-level orchestrator wrapping `query()`. Manages conversation state, compaction, file history snapshots, attribution, and turn-level bookkeeping. Used by the REPL screen.
 - **`src/screens/REPL.tsx`** — The interactive REPL screen (React/Ink component). Handles user input, message display, tool permission prompts, and keyboard shortcuts.
 
-##### API Layer
+#### API Layer
 
 - **`src/services/api/claude.ts`** — Core API client. Builds request params (system prompt, messages, tools, betas), calls the Anthropic SDK streaming endpoint, and processes `BetaRawMessageStreamEvent` events.
 - **7 providers**: `firstParty` (Anthropic direct), `bedrock` (AWS), `vertex` (Google Cloud), `foundry`, `openai`, `gemini`, `grok` (xAI)。
 - Provider selection in `src/utils/model/providers.ts`。优先级：modelType 参数 > 环境变量 > 默认 firstParty。
 
-##### Tool System
+#### Tool System
 
 - **`src/Tool.ts`** — Tool interface definition (`Tool` type) and utilities (`findToolByName`, `toolMatchesName`).
 - **`src/tools.ts`** — Tool registry. Assembles the tool list; tools are imported from `@claude-code-best/builtin-tools` package. Some tools are conditionally loaded via `feature()` flags or `process.env.USER_TYPE`.
@@ -138,7 +136,7 @@ bun run docs:dev
 - **`src/tools/shared/`** / **`packages/builtin-tools/src/tools/shared/`** — Tool 共享工具函数。
 - **`src/services/searchExtraTools/`** — TF-IDF 工具索引模块（`toolIndex.ts`），为延迟工具提供语义搜索能力。复用 `localSearch.ts` 的 TF-IDF 算法函数（`computeWeightedTf`、`computeIdf`、`cosineSimilarity` 已导出）。修改这些函数时需同步检查工具索引测试。`prefetch.ts` 的 `extractQueryFromMessages` 复用了 `skillSearch/prefetch.ts` 的同名导出函数，修改 skill prefetch 的该函数时需同步检查工具预取行为。工具预取使用独立的 `discoveredToolsThisSession` Set，与 skill prefetch 的去重集合互不影响。
 
-##### UI Layer (Ink)
+#### UI Layer (Ink)
 
 - **`src/ink.ts`** — Ink render wrapper with ThemeProvider injection.
 - **`packages/@ant/ink/`** — Custom Ink framework（forked/internal），包含 components、core、hooks、keybindings、theme、utils。注意：不是 `src/ink/`。
@@ -151,7 +149,7 @@ bun run docs:dev
   - `design-system/` — 复用 UI 组件（Dialog, FuzzyPicker, ProgressBar, ThemeProvider 等）
 - Components use React Compiler runtime (`react/compiler-runtime`) — decompiled output has `_c()` memoization calls throughout.
 
-##### State Management
+#### State Management
 
 - **`src/state/AppState.tsx`** — Central app state type and context provider. Contains messages, tools, permissions, MCP connections, etc.
 - **`src/state/AppStateStore.ts`** — Default state and store factory.
@@ -159,7 +157,7 @@ bun run docs:dev
 - **`src/state/selectors.ts`** — State selectors.
 - **`src/bootstrap/state.ts`** — Module-level singletons for session-global state (session ID, CWD, project root, token counts, model overrides, client type, permission mode).
 
-##### Workspace Packages
+#### Workspace Packages
 
 | Package | 说明 |
 |---------|------|
@@ -184,34 +182,34 @@ bun run docs:dev
 
 辅助目录（无 package.json，非 workspace 包）: `langfuse-dashboard`（Langfuse 面板）、`shared-web-ui`（共享 Web UI 组件）、`highlight-code`（代码高亮）、`claude-pencil`（编辑器）、`vscode-ide-bridge`（VS Code 桥接）、`pokemon`（示例/测试）。
 
-##### Bridge / Remote Control
+#### Bridge / Remote Control
 
 - **`src/bridge/`** — Remote Control / Bridge 模式。feature-gated by `BRIDGE_MODE`。包含 bridge API、会话管理、JWT 认证、消息传输、权限回调等。Entry: `bridgeMain.ts`。
 - **`packages/remote-control-server/`** — 自托管 RCS，支持 Docker 部署，含 Web UI 控制面板（React 19 + Vite + Radix UI）。支持 ACP agent 通过 acp-link 接入（ACP WebSocket handler、relay handler、SSE event stream）。通过 `bun run rcs` 启动。
 - CLI 快速路径: `claude remote-control` / `claude rc` / `claude bridge`。
 - 详见 `docs/features/remote-control-self-hosting.md`。
 
-##### HTML Artifact Hosting
+#### HTML Artifact Hosting
 
 - **`packages/cloud-artifacts/`** — 独立 Cloudflare Worker + R2 服务，类似 `remote-control-server/` 的"独立部署服务"定位，**不被主 CLI import**。Worker 处理 `POST /upload`（Bearer token 鉴权 + text/html 校验 + 10MB 上限 + ttl∈{7,30}）和 `GET /<7d|30d>/<id>.html`（从 R2 读 + Cache-Control: max-age=86400）。R2 用 prefix + lifecycle rule 实现 TTL（`7d/` 删 7 天、`30d/` 删 30 天），Worker 不参与过期处理。ID 默认 `nanoid(21)`（126 bit 熵），可指定 `?hash=` 自定义 ID（覆盖语义：先删 7d/30d prefix 旧 key 再写新 key）。Worker 用 `wrangler types` 生成的全局 `Env` 类型（`worker-configuration.d.ts`，已 gitignore），不依赖 `@cloudflare/workers-types`。部署用 `npm create cloudflare@latest` 初始化 + `bun run setup`（创建 bucket + lifecycle + secret）+ `bun run deploy`。生产出口经 Deno Deploy 边缘代理（`https://cloud-artifacts.claude-code-best.win`），副作用是 HTTP status code 被抹平为 200（body 的 `{error}` 字段仍保留）。详见 `packages/cloud-artifacts/README.md`。
 
-##### ACP Protocol (Agent Client Protocol)
+#### ACP Protocol (Agent Client Protocol)
 
 - **`src/services/acp/`** — ACP agent 实现，包含 `agent.ts`（AcpAgent 类）、`bridge.ts`（Claude Code ↔ ACP 桥接）、`permissions.ts`（权限处理）、`entry.ts`（入口）。
 - **`packages/acp-link/`** — ACP 代理服务器，将 WebSocket 客户端桥接到 ACP agent。提供 `acp-link` CLI 命令，支持自定义端口/HTTPS/认证/会话管理、RCS 集成（REST 注册 + WS identify 两步流程）、权限模式透传（fallback: 客户端传值 > config > `ACP_PERMISSION_MODE` 环境变量）。
 - ACP 权限管道改进：`createAcpCanUseTool` 统一权限流水线，`applySessionMode` 模式同步，`bypassPermissions` 可用性检测（非 root/sandbox 环境）。
 - ACP Plan 可视化已支持 `session/update plan` 类型的消息展示（PlanView 组件，含进度条/状态图标/优先级标签）。
 
-##### Daemon Mode
+#### Daemon Mode
 
 - **`src/daemon/`** — Daemon 模式（长驻 supervisor）。feature-gated by `DAEMON`。包含 `main.ts`（entry）和 `workerRegistry.ts`（worker 管理）。
 
-##### Context & System Prompt
+#### Context & System Prompt
 
 - **`src/context.ts`** — Builds system/user context for the API call (git status, date, CLAUDE.md contents, memory files).
 - **`src/utils/claudemd.ts`** — Discovers and loads CLAUDE.md files from project hierarchy.
 
-##### Feature Flag System
+#### Feature Flag System
 
 Feature flags control which functionality is enabled at runtime. 代码中统一通过 `import { feature } from 'bun:bundle'` 导入，调用 `feature('FLAG_NAME')` 返回 `boolean`。
 
@@ -236,18 +234,18 @@ Feature flags control which functionality is enabled at runtime. 代码中统一
 
 **新增功能的正确做法**: 保留 `import { feature } from 'bun:bundle'` + `feature('FLAG_NAME')` 的标准模式，在运行时通过环境变量或配置控制，不要绕过 feature flag 直接 import。
 
-##### Multi-API 兼容层
+#### Multi-API 兼容层
 
 所有兼容层均采用流适配器模式：将第三方 API 格式转为 Anthropic 内部格式，下游代码完全不改。通过 `/login` 命令配置。
 
-###### OpenAI 兼容层
+##### OpenAI 兼容层
 
 通过 `CLAUDE_CODE_USE_OPENAI=1` 启用，支持 Ollama/DeepSeek/vLLM 等任意 OpenAI Chat Completions 协议端点。含 DeepSeek thinking mode 支持。
 
 - **`src/services/api/openai/`** — client、消息/工具转换、流适配、模型映射
 - 关键环境变量：`CLAUDE_CODE_USE_OPENAI`、`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`
 
-###### Gemini 兼容层
+##### Gemini 兼容层
 
 通过 `CLAUDE_CODE_USE_GEMINI=1` 启用。独立环境变量体系。
 
@@ -255,7 +253,7 @@ Feature flags control which functionality is enabled at runtime. 代码中统一
 - 关键环境变量：`GEMINI_API_KEY`（必填）、`GEMINI_MODEL`（直接指定）、`GEMINI_DEFAULT_SONNET_MODEL`/`GEMINI_DEFAULT_OPUS_MODEL`（按能力映射）
 - 模型映射优先级：`GEMINI_MODEL` > `GEMINI_DEFAULT_*_MODEL` > `ANTHROPIC_DEFAULT_*_MODEL`(已废弃) > 原样返回
 
-###### Grok 兼容层
+##### Grok 兼容层
 
 通过 `CLAUDE_CODE_USE_GROK=1` 启用。自定义模型映射支持 xAI Grok API。
 
@@ -263,13 +261,13 @@ Feature flags control which functionality is enabled at runtime. 代码中统一
 
 详见各兼容层的 docs 文档。
 
-##### 穷鬼模式（Budget Mode）
+#### 穷鬼模式（Budget Mode）
 
 - 通过 `/poor` 命令切换，持久化到 `settings.json`。
 - 启用后跳过 `extract_memories`、`prompt_suggestion` 和 `verification_agent`，显著减少 token 消耗。
 - 实现在 `src/commands/poor/poorMode.ts`。
 
-##### Stubbed/Deleted Modules
+#### Stubbed/Deleted Modules
 
 | Module | Status |
 |--------|--------|
@@ -284,14 +282,14 @@ Feature flags control which functionality is enabled at runtime. 代码中统一
 | Plugins / Marketplace | Restored — 插件安装/卸载/启用/禁用 + Marketplace 浏览 |
 | MCP OAuth | Simplified |
 
-##### Key Type Files
+#### Key Type Files
 
 - **`src/types/global.d.ts`** — Declares `MACRO`, `BUILD_TARGET`, `BUILD_ENV` and internal Anthropic-only identifiers.
 - **`src/types/internal-modules.d.ts`** — Type declarations for `bun:bundle`, `bun:ffi`, `@anthropic-ai/mcpb`.
 - **`src/types/message.ts`** — Message type hierarchy (UserMessage, AssistantMessage, SystemMessage, etc.).
 - **`src/types/permissions.ts`** — Permission mode and result types.
 
-#### Testing
+### Testing
 
 - **框架**: `bun:test`（内置断言 + mock）
 - **单元测试**: 就近放置于 `src/**/__tests__/`，文件名 `<module>.test.ts`
@@ -300,7 +298,7 @@ Feature flags control which functionality is enabled at runtime. 代码中统一
 - **命名**: `describe("functionName")` + `test("behavior description")`，英文
 - **包测试**: `packages/` 下各包也有独立测试（如 `color-diff-napi` 11 tests）
 
-##### Mock 使用规范
+#### Mock 使用规范
 
 **只 mock 有副作用的依赖链，不 mock 纯函数/纯数据模块。**
 
@@ -322,7 +320,7 @@ mock.module("src/utils/debug.ts", debugMock);
 
 路径规则：统一用 `.ts` 扩展名 + `src/*` 别名路径，禁止双重 mock 同一模块。
 
-###### 跨文件 mock 污染（process-global `mock.module`）
+##### 跨文件 mock 污染（process-global `mock.module`）
 
 **Bun 的 `mock.module` 是进程全局的（last-write-wins），不是 per-file 隔离的。** 一个测试文件的 `mock.module` 会污染同一进程中所有其他测试文件的 `require`/`import`。
 
@@ -364,7 +362,7 @@ afterAll(() => { axiosHandle.useStubs = false })
 3. 在两个文件中各加 `console.error('[file] milestone')` 追踪实际执行顺序
 4. 检查 `mock.module` 的 specifier 是否与同目录其他测试的 `require`/`import` 路径解析到同一模块
 
-##### 类型检查
+#### 类型检查
 
 项目使用 TypeScript strict 模式，**tsc 必须零错误**。每次修改后运行：
 
@@ -380,7 +378,7 @@ bun run precheck
 - `msg.request` 属性访问：`const req = msg.request as Record<string, unknown>`
 - Ink `color` prop：用 `as keyof Theme` 而非 `as any`
 
-#### Working with This Codebase
+### Working with This Codebase
 
 - **precheck must pass** — `bun run precheck`（typecheck + lint fix + test）必须零错误，任何修改都不能引入新的类型/lint/测试错误。
 - **Feature flags** — 默认全部关闭（`feature()` 返回 `false`）。Dev/build 各有自己的默认启用列表。不要在 `cli.tsx` 中重定义 `feature` 函数。
@@ -395,11 +393,11 @@ bun run precheck
 - **Ink 框架在 `packages/@ant/ink/`** — 不是 `src/ink/`（该目录不存在）。Ink 相关的组件、hooks、keybindings 都在 packages 中。
 - **Provider 优先级** — `modelType` 参数 > 环境变量 > 默认 `firstParty`。新增 provider 需在 `src/utils/model/providers.ts` 注册。
 
-#### Design Context
+### Design Context
 
 Impeccable 设计上下文保存在 `.impeccable.md` 中。设计 Web UI（RCS 控制面板、文档站、着陆页）时必须参考该文件。
 
-##### 核心设计原则
+#### 核心设计原则
 
 1. **Considered over clever** — 每个设计选择都应感觉有意为之，而非追逐潮流
 2. **Warmth through subtlety** — 通过橙色色调的中性色、留白布局、有温度的文案来传达温暖
@@ -407,29 +405,29 @@ Impeccable 设计上下文保存在 `.impeccable.md` 中。设计 Web UI（RCS �
 4. **Community voice** — 设计应感觉是由使用者创造的，而非遥远的设计团队
 5. **Anthropic's shadow** — 遵循 Anthropic 的设计直觉：干净的布局、充足的间距、温暖的色温
 
-##### 品牌色
+#### 品牌色
 
 - 主色：Claude Orange `#D77757`（terra cotta）
 - 辅色：Claude Blue `#5769F7`
 - 暗色模式使用温暖的深色表面（非冷蓝黑色）
 
-##### 目标用户
+#### 目标用户
 
 技术团队/企业，在专业工作流中使用 AI 辅助编程。友好的开源社区氛围，非企业 SaaS 风格。
 
-##### 视觉参考
+#### 视觉参考
 
 Anthropic 公司的设计风格 — 干净、考究、温暖的底色。大量留白，以排版为核心。避免 AI 产品常见的设计套路（渐变文字、玻璃态、霓虹色）。
 
 ## 发现处置纪律
 
-自动检查（gate 的 `FAIL`/`WARN`、`jev` L3 语义发现、CRG / `ocr review` 审查意见）
+自动检查（canon 的 `FAIL`/`WARN`、`jev` L3 语义发现、CRG 审查意见）
 产出的是**发现**，不是判决。每条发现都必须被显式处置，不存在"绕过"这个选项。
 
 ### 先读规范，再改代码
 
 1. 拿到 finding，先读规则原文，确认这条发现到底要求什么：
-   - gate 规则总览：`.githooks/GATE_HANDBOOK.md`（无则 `canon/manual/gate.md`）
+   - canon 规则总览：`gate-spec` skill（正本）；各仓 `.githooks/spec/docs/SPEC_OVERVIEW.md` 为播种副本
    - 单条规则的参数（匹配范围 / 严重度 / harness）：`.githooks/spec/**/<rule>.yaml`
    - 项目适配说明（本仓为什么这么定）：`.agent/rules/gates.md`
 2. 不确定 finding 是否成立时，读完规则仍不能判定 → **记为待裁决**并在交付记录里写明，
@@ -448,12 +446,12 @@ Anthropic 公司的设计风格 — 干净、考究、温暖的底色。大量�
 
 ### 禁止糊弄式修复
 
-以下动作一律视为违规（无论 gate 是否因此变绿）：
+以下动作一律视为违规（无论 canon 是否因此变绿）：
 
 | 禁止 | 为什么 | 正确做法 |
 |---|---|---|
-| 改 `.githooks/spec/` 规则、降低 `fail_severity`、删 spec 文件 | 把约束改没，不是修问题 | 开 issue 说明规则缺陷，交维护者决定 |
-| `--no-verify`、跳过钩子、直接推 | 绕过的是整个门禁体系 | 修到清零；规则有误走 issue |
+| 改 `.githooks/spec/` 规则、降低 `fail_severity`、删 spec 文件 | 把约束改没，不是修问题 | 在对话里说明规则缺陷，交用户决定 |
+| `--no-verify`、跳过钩子、直接推 | 绕过的是整个门禁体系 | 修到清零；规则有误上报用户 |
 | `head` / `tail` / `grep -v` 截断输出后当没看见 | 后面的 finding 被吞 | 完整读输出 |
 | 加 `#[allow(dead_code)]` / `# noqa` 消告警 | 压制信号而非解决 | 删无用代码，或写清保留理由 |
 | 建空文件 / 空目录 / 占位文件骗过目录类规则 | 结构噪音 | 真按规则合并或删除 |
@@ -465,13 +463,13 @@ Anthropic 公司的设计风格 — 干净、考究、温暖的底色。大量�
 - **每条 finding 一个处置**：修复（默认）或**书面驳回**。
 - 修复 → 在交付记录里写：`规则 ID → 根因 → 改法（file:line）`。
 - 驳回 → 必须写 `规则 ID + 不修理由 + 依据`，由维护者裁决。沉默即违规。
-- 交付记录落点：PR 正文 `## Delivery record` 段，或 issue 的交付评论。
+- 交付记录落点：PR 正文 `## Delivery record` 段。
 - WARN 与 FAIL 同等对待。WARN 只是不拦，不是可忽略。
 
 ### 规范层级
 
-- `.githooks/` 是 gate 领地：agent 不改规则。
-- `.agent/rules/`、`specs/rules/` 是规范正本：发现规则与现实冲突 → 提 issue，不自行改写。
+- `.githooks/` 是 canon 领地：agent 不改规则。
+- `.agent/rules/`、`specs/rules/` 是规范正本：发现规则与现实冲突 → 上报用户，不自行改写。
 - 本纪律与各仓既有条款冲突时，以本纪律为准（它更严格）。
 
 ## 代码风格
@@ -491,9 +489,10 @@ Anthropic 公司的设计风格 — 干净、考究、温暖的底色。大量�
 
 ### 占位符与未完成
 
-- 未实现的函数或 trait 用语言原生宏，并带 issue 号：
-  - Rust：`todo!("TODO(#123): 说明这里要做什么")` / `unimplemented!("…")`
-- TODO / FIXME 注释必须带 issue 号：`// TODO(#123): …`。
+- 未实现的函数或 trait 用语言原生宏，并带可追溯标识（PR 号 / 分支名 / 模块名皆可）：
+  - Rust：`todo!("TODO(PR-12): 说明这里要做什么")` / `unimplemented!("…")`
+- TODO / FIXME 注释必须带可追溯标识：`// TODO(PR-12): …`。
+- 标识是信息位，不要求对应任何外部系统。
 - 不留空的 `todo!()` / `pass` / `NotImplemented` 桩而无说明。
 
 ### 复用与删除
@@ -530,11 +529,14 @@ Anthropic 公司的设计风格 — 干净、考究、温暖的底色。大量�
 - 全量测试、全量构建、全量 lint 放 CI 或收尾阶段，不在改动过程中反复跑。
 - 本地只跑轻量、快的针对性检查（单 crate `cargo check`、单包测试、`fmt --check`、
   类型检查）。
-- 需要本地跑重命令时，套资源限制（`cpulimit -l 65 -i --` 或本仓等价手段），
-  不抢占用户正在用的 CPU。
+- 需要本地跑重命令时，套 cgroup CPU 配额（`systemd-run --user --scope -p CPUQuota=70% --`
+  或本仓等价手段），不抢占用户正在用的 CPU——与「Rust 开发性能」章节同值，
+  两处不要各写一个数。
+- 本条是**默认下限**：本仓 local 约定更严格时以 local 为准（如本项目禁止本地跑
+  任何编译/测试、只准 CI 跑，比套配额更严），此时本条自动让位，不构成豁免。
 - 装依赖、打包等命令同样受限。
 
-### 收尾
+### 验证收尾
 
 - 一次跑完该跑的检查（测试 + lint + 类型），不在半成品状态下宣称通过。
 - 验证不了的部分（缺运行环境、缺凭据、缺硬件）明确说"未验证 + 为什么"，
@@ -552,7 +554,7 @@ Anthropic 公司的设计风格 — 干净、考究、温暖的底色。大量�
 
 ### 敏感与不可逆
 
-- 凭据、token、密钥、私钥：不打印到输出、不写进提交、不粘到 issue/PR 正文。
+- 凭据、token、密钥、私钥：不打印到输出、不写进提交、不粘到 PR 正文。
 - 不擅自 dump 整个配置文件或环境变量（可能含密钥）。要看就只看需要的字段。
 - 系统级配置、字体、全局环境、dotfiles 里的全局项：默认别动，改动前先问。
 - 数据库迁移、配置格式变更、依赖大版本升级：先确认可回滚。
@@ -574,7 +576,7 @@ Anthropic 公司的设计风格 — 干净、考究、温暖的底色。大量�
 ### 审查两层
 
 1. **结构层**：`code-review-graph detect-changes` 看结构影响、循环依赖、风险面。
-2. **规范层**：`ocr review`（**代码审查工具**，与 OCR 截图识别无关）看代码规范。
+2. **规范层**：`canon check`（含 jev 语义层）看代码规范。
    按模块分批喂，不要一次性喂整个仓。
 
 - 审查发现逐条处置：修或书面驳回（同发现处置纪律）。
@@ -594,8 +596,8 @@ Anthropic 公司的设计风格 — 干净、考究、温暖的底色。大量�
 
 ### 别造 demo 污染真实仓
 
-- 验证 issue/PR 流程、gh 拦截、规则改动，用专用沙盒仓（如 `demo-githooks`），
-  不在业务仓创建 demo issue/PR。
+- 验证 PR 流程、gh 拦截、规则改动，用专用沙盒仓（如 `demo-githooks`），
+  不在业务仓创建 demo PR。
 
 ## 提交与 PR
 
@@ -611,27 +613,64 @@ Anthropic 公司的设计风格 — 干净、考究、温暖的底色。大量�
   `test:` / `ci:` / `build:` / `perf:` / `style:` / `revert:`）。
 - 标题**用英文**，正文可用中文。
 - 一个 commit 一件事。不把无关改动、格式化噪声、生成物混进逻辑改动。
-- 提交前跑对应检查（`gate pre-commit` / `gate pre-push`），不靠推送失败才发现。
+- 提交前跑对应检查（`canon pre-commit` / `canon pre-push`），不靠推送失败才发现。
 
-### Issue
+### 提交身份
 
-- 标题中文；正文 heading 英文、内容中文。
-- sub-issue 必须自包含：正文不写 `Parent:` / `Related:` / PR 占位符，直接写清它要什么。
-- 关闭前 `Done when` 的 checkbox 全勾。
+- commit 作者固定是维护者本人账号 `hathawayANdRX105`（大小写逐字一致）。
+- **不得**用 `git -c user.name=... -c user.email=...` 覆盖身份提交。历史上
+  `agent@local` / `ci@local` 这类签名就是这么来的：GitHub 账号对不上，
+  贡献归属、追责、审计全丢。
+- 提交前若 `git config user.name` / `user.email` 不是上面这个账号，先改成本仓配置
+  （`git config user.name hathawayANdRX105`），别带着错的身份往下走。
+- 邮箱两套都算合法：`2635254302@qq.com`（本地提交）与 GitHub 的
+  `61958173+hathawayANdRX105@users.noreply.github.com`（服务端 squash 落库时写的）。
+- 禁止 `Co-authored-by:`  trailer 署其他人或机器人账号。
 
 ### PR
 
 - 标题纯英文（conventional commit 风格）；正文小节标题英文、内容中文。
 - 正文按仓库模板（`.github/PULL_REQUEST_TEMPLATE.md`）写：背景 / 改了什么 / 为什么 /
   实现步骤 / 交付记录 / 怎么验证 / 检查清单。
-- 关联 issue 用 `Fixes #<n>` 收尾行；draft 阶段用 `Related #<n>`，合并授权前改 `Fixes`。
+- 验收标准写在 PR 的 `Construction plan` 里。审查发现的问题在同一 PR 上继续提交修复，不另开 PR。
 - 开启或更新 PR 后看 CI 结果到底（`gh pr checks`），红了就修，不等用户来问。
-- 被 gate 拦下就修代码，**不改规则**。规则确有缺陷 → 开 issue 交维护者裁决。
+- 被 canon 拦下就修代码，**不改规则**。规则确有缺陷 → 上报用户裁决。
+
+### 合并
+
+- **只走 squash merge**：
+  `gh pr merge <N> --squash --delete-branch --body "Agent 🤖 - Merge: <原因>"`。
+- 禁用 `--merge` / `--rebase`（含 `-m` / `-r` 短形式）。merge commit 会让 PR
+  记录的分支历史消失，同一分支再合要重新三方合并、当初的冲突裁决全部丢失；
+  rebase-merge 还会逐个改写 commit 作者。两者都让 `main` 失去审计价值。
+- 不带任何合并方式的 `gh pr merge` 会弹交互菜单 —— agent 不该触发交互，一律显式
+  写 `--squash`。
+- 禁止本地 `git merge <分支>` 直接合进 `main` 再推 remote。要合就走 PR。
+- 各仓 GitHub 设置已关闭 merge commit 与 rebase merge，squash 是唯一可选项。
 
 ### 收尾
 
-- 收尾时清掉：已合并分支、临时 worktree、临时进程、跑完的 dev server。
-- 资源及时释放；只保留维护者需要的进程（如用户要看的 web 前端）。
+清的是**本会话自己造出来的东西**。别的会话正在用的 worktree、分支、进程一律不碰。
+
+#### 工作树与分支
+
+- `.wt/` 下的临时 worktree 目录与对应分支，合并完成后逐个清掉，不留 stale。
+- 动手前 `git worktree list` + `git branch` 对照，确认目标确实是本会话建的；
+  会话开始时就存在的不动。
+- 清之前确认三件事：PR 已合并、工作区无未提交改动、目录对应当前分支。任一不满足
+  就不清，先说清卡在哪。
+- 顺序：`git worktree remove <目录>` → `git branch -d <分支>` → 删远端分支。
+  worktree 还挂着时 `-d` 删不掉，先 remove。
+- **严禁** `rm -rf .wt/`、`rm -rf .wt/*`、`git clean` 这类批量删——会连别的会话的
+  工作树一起擦掉。删单个目录也走 `git worktree remove`。
+
+#### 进程与资源
+
+- 长驻进程（dev server、watcher、调试器、后台任务）用完停掉，确认端口已释放，
+  不留孤儿进程。
+- 后台 job 要等到结果再收尾，别挂着不管。
+- 只保留维护者明确要留的（如用户正在看的 web 前端）。资源及时释放，不抢占用户
+  正在用的 CPU 与内存。
 
 ## 工具与命令
 
